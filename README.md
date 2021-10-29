@@ -1,0 +1,1 @@
+A collection of computational linguistic functions ranging from finding degree of decodebility to cross sentence similarity.
