@@ -6,6 +6,7 @@ import numpy as np
 # Leave a space around quotation marks for better sentence splitting
 def standardize(text):
     text = text.replace('\ufeff','')
+    text = text.replace("\n", " ")
     text = re.sub("’","'",text)
     text = re.sub("‘","'",text)
     text = re.sub("“",'"',text)
