@@ -141,6 +141,16 @@ def decoding_degree_high_mean(word_array):
     decoding_degrees_arr= decoding_degree(word_array)
     return math_functs.high_mean(decoding_degrees_arr)
 
+# Provide the original word forms not lemmas
+def decoding_degree_stats(word_array):
+    decoding_degrees_arr= decoding_degree(word_array)
+
+    index_highest = np.argsort(decoding_degrees_arr)[-1]
+    decoding_degree_word_highest = decoding_degrees_arr[index_highest]
+
+    return {"decoding_degree_word_highest": decoding_degree_word_highest,
+            "decoding_degree_mean": np.array(decoding_degrees_arr).mean(),
+            "decoding_degree_high_mean": math_functs.high_mean(decoding_degrees_arr)}
 
 
 # SYLLABLES
@@ -171,3 +181,14 @@ def n_syllables_mean(word_array):
 def n_syllables_high_mean(word_array):
     n_syllables = count_syllables(word_array)
     return math_functs.high_mean(n_syllables)
+
+
+def n_syllables_stats(word_array):
+    n_syllables = count_syllables(word_array)
+    index_highest = np.argsort(n_syllables)[-1]
+    n_syllables_word_highest = n_syllables[index_highest]
+
+    return {"n_syllables_total": np.sum(n_syllables),
+            "n_syllables_mean": np.array(n_syllables).mean(),
+            "n_syllables_high_mean": math_functs.high_mean(n_syllables),
+            "n_syllables_word_highest": n_syllables_word_highest}
