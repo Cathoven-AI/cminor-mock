@@ -26,14 +26,13 @@ def endWithPunct(line):
 # If the whole text is only one paragraph, 
 #     then this only paragraph will be splitted based on the given n_sents_per_piece
 
-# Also ignores titles
-def split_text(nlp, text, n_sents_per_piece):
+# Also ignores titles if keep_title is False
+def split_text(nlp, text, n_sents_per_piece=10, keep_titles=True):
     doc = nlp(str(text))
     
     n_sents_total = text_stats.api.TextStats(doc).n_sents
-    sents_per_piece = 10
     
-    n_pieces = math.floor(n_sents_total/sents_per_piece)
+    n_pieces = math.floor(n_sents_total/int(n_sents_per_piece))
     
     if n_pieces == 0:
         n_pieces = 1
@@ -58,8 +57,14 @@ def split_text(nlp, text, n_sents_per_piece):
                 piece = [splitted_text[x]]
                 split_size = n_sent_arr[x]
             else:
-                # don't include titles
-                if not (len(splitted_text[x]) < 75 and  not endWithPunct(splitted_text[x])):
+                if keep_titles:
+                    if not (len(splitted_text[x]) < 75 and  not endWithPunct(splitted_text[x])):
+                        piece.append(splitted_text[x])
+                    else:
+                        piece.append(splitted_text[x] + '\n')
+                
+                # don't include titles if keep_titles is False
+                elif not (len(splitted_text[x]) < 75 and  not endWithPunct(splitted_text[x])):
                     piece.append(splitted_text[x])
                     
                 split_size += n_sent_arr[x]
