@@ -40,13 +40,42 @@ def split_text(nlp, text, n_sents_per_piece=10, keep_titles=True):
     per_piece = round(n_sents_total/n_pieces)
     
     splitted_text = text.split('\n')
-    
-    pieces = []    
-    if len(splitted_text) > 1:
-        n_sent_arr = []
-        for sp in splitted_text:
-            n_sent_arr.append(text_stats.api.TextStats(nlp(str(sp))).n_sents)
 
+    # remove empty strings
+    while '' in splitted_text:
+        splitted_text.remove('')
+
+    #display(splitted_text)
+
+
+    # If piece size is smaller than paragraph
+    # split the paragraphs
+    new_splitted_text = []
+    n_sent_arr = []
+    for sp in splitted_text:
+        n_sents_piece = text_stats.api.TextStats(nlp(str(sp))).n_sents
+        n_pieces_piece = round(n_sents_piece / per_piece)
+
+        if n_pieces_piece >= 2:
+            doc_piece = nlp(str(sp))
+            doc_piece_sents = [str(sent) for sent in doc_piece.sents]
+
+            for z in range(n_pieces_piece):
+                if z != n_pieces_piece-1:
+                    new_splitted_text.append(' '.join(doc_piece_sents[z*per_piece:z*per_piece+per_piece]))
+                    n_sent_arr.append(per_piece)
+                else:
+                    new_splitted_text.append(' '.join(doc_piece_sents[z*per_piece:len(doc_piece_sents)]))
+                    n_sent_arr.append(len(doc_piece_sents) - z*per_piece)
+        else:
+            new_splitted_text.append(sp)
+            n_sent_arr.append(n_sents_piece)
+
+    splitted_text = new_splitted_text
+
+    
+    pieces = []
+    if len(splitted_text) > 1:
         pointer = 0
         split_size = 0
         piece = []
