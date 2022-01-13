@@ -13,6 +13,18 @@ def sent2words(sentence):
     return word_list
 
 
+def sent2phonemes(sentence):
+    clean_phonemes = []
+    phonemes = g2p(sentence)
+    for phoneme in phonemes:
+        for char in phoneme:
+            if char.isalpha():
+                clean_phonemes.append(phoneme)
+                break
+
+    return clean_phonemes
+
+
 #DECODABILITY
 def decoding_degree(s):
     if type(s) == str:
