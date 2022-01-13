@@ -2,9 +2,15 @@
 from g2p_en import G2p
 from . import math_functs
 import numpy as np
+import re
 
 # This package provides phonemes when a string is given
 g2p = G2p()
+
+# Sentence to words list
+def sent2words(sentence):
+    word_list = re.sub("[^\w]", " ",  sentence).split()
+    return word_list
 
 
 #DECODABILITY
