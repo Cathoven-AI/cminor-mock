@@ -174,13 +174,13 @@ def decoding_degree_stats(word_array):
         index_highest = np.argsort(decoding_degrees_arr)[-1]
         decoding_degree_word_highest = decoding_degrees_arr[index_highest]
 
-        return {"decoding_degree_word_highest": decoding_degree_word_highest,
-                "decoding_degree_mean": np.array(decoding_degrees_arr).mean(),
-                "decoding_degree_high_mean": math_functs.high_mean(decoding_degrees_arr)}
+        return {"decoding_degree_mean": np.array(decoding_degrees_arr).mean(),
+                "decoding_degree_high_mean": math_functs.high_mean(decoding_degrees_arr),
+                "decoding_degree_word_highest": decoding_degree_word_highest}
     else:
-        return {"decoding_degree_word_highest": 0,
-                "decoding_degree_mean": 0,
-                "decoding_degree_high_mean": 0}
+        return {"decoding_degree_mean": 0,
+                "decoding_degree_high_mean": 0,
+                "decoding_degree_word_highest": 0}
 
 
 # SYLLABLES
