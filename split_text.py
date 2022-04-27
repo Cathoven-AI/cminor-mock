@@ -30,8 +30,8 @@ def endWithPunct(line):
 def split_text(nlp, text, n_sents_per_piece=10, keep_titles=True):
     doc = nlp(str(text))
     
-    #n_sents_total = text_stats.api.TextStats(doc).n_sents
-    n_sents_total = text_stats.n_sents(doc)
+    n_sents_total = text_stats.api.TextStats(doc).n_sents
+    #n_sents_total = text_stats.n_sents(doc)
     
     n_pieces = math.floor(n_sents_total/int(n_sents_per_piece))
     
@@ -54,8 +54,8 @@ def split_text(nlp, text, n_sents_per_piece=10, keep_titles=True):
     new_splitted_text = []
     n_sent_arr = []
     for sp in splitted_text:
-        #n_sents_piece = text_stats.api.TextStats(nlp(str(sp))).n_sents
-        n_sents_piece = text_stats.n_sents(nlp(str(sp)))
+        n_sents_piece = text_stats.api.TextStats(nlp(str(sp))).n_sents
+        #n_sents_piece = text_stats.n_sents(nlp(str(sp)))
         n_pieces_piece = round(n_sents_piece / per_piece)
 
         if n_pieces_piece >= 2:

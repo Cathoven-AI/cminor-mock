@@ -37,6 +37,7 @@ def standardize_patch(text):
 def standardize_old(text):
     text = text.replace('\ufeff','')
     text = text.replace("\n", " ")
+    text = text.replace("\r", " ")
     text = re.sub("’","'",text)
     text = re.sub("‘","'",text)
     text = text.replace('´',"'")
