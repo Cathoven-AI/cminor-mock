@@ -4,9 +4,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
 mismatches = pd.read_csv(os.path.join(BASE_DIR, 'files/model_files/mismatches.csv'))
-mismatches_dict = {}
-for x in range(len(mismatches)):
-    mismatches_dict[mismatches.iloc[x]['word']] = mismatches.iloc[x]['lemma']
+mismatches_dict = mismatches.set_index(['word','pos'])['lemma'].to_dict()
 
 
 from nltk.stem import WordNetLemmatizer
@@ -23,8 +21,7 @@ def fine_lemmatize(x,doc,spacy):
     #    if x.orth_.lower() in no_singular.iloc[:,0].values:
     #        x.lemma_ = x.orth_.lower()
 
-    if x.orth_.lower() in mismatches.word.values and x.pos_ in mismatches.pos.values:
-        x.lemma_ = mismatches_dict[x.orth_.lower()]
+    
 
     if x.lemma_ == 'an':
         x.lemma_ = 'a'
@@ -81,7 +78,7 @@ def fine_lemmatize(x,doc,spacy):
     if x.lemma_ == 'be' and x.i==x.head.i:
         x.pos_ = 'VERB'
         
-    x.lemma_ = x.lemma_.lower()
+    x.lemma_ = mismatches_dict.get((x.orth_.lower(),x.pos_),x.lemma_.lower())
     
     if x.pos_.endswith('CONJ'):
         x.pos_ = 'CONJ'
