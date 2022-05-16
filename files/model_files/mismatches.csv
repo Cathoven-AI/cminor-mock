@@ -23,7 +23,7 @@ stricken,VERB,strike
 farther,ADJ,far
 abode,VERB,abide
 clad,VERB,clad
-elder,ADJ, elder
+elder,ADJ,elder
 halfpence,NOUN,halfpenny
 species,NOUN,species
 politics,NOUN,politics
@@ -382,3 +382,25 @@ dramas,NOUN,drama
 whirls,NOUN,whirl
 tableaux,NOUN,tableau
 leaves,NOUN,leaf
+am,AUX,be
+is,AUX,be
+are,AUX,be
+was,AUX,be
+were,AUX,be
+been,AUX,be
+being,AUX,be
+has,AUX,have
+had,AUX,have
+having,AUX,have
+getting,AUX,get
+gets,AUX,get
+got,AUX,get
+gotten,AUX,get
+did,AUX,do
+done,AUX,do
+does,AUX,do
+doing,AUX,do
+needs,AUX,need
+needed,AUX,need
+dares,AUX,dare
+dared,AUX,dare
