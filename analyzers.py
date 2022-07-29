@@ -299,7 +299,6 @@ class AdoTextAnalyzer(object):
             for x in doc:
                 if bool(re.search('[a-zA-Z]', x.sent.text)):
 
-                    
                     x = fine_lemmatize(x,doc,nlp)
                     
                     original_list.append(x.orth_)
@@ -393,7 +392,7 @@ class AdoTextAnalyzer(object):
             #             dec_list.append(decoding_level(lemma_list[-1].lower()))
                         
                         
-                    if x.sent.root.i != root_id:
+                    if x.sent.root.i != root_id and bool(re.search('[A-Za-z]',str(x.sent))):
                         root_id = x.sent.root.i
                         n_sents += 1
                     sent_index_list.append(n_sents-1)
@@ -405,7 +404,7 @@ class AdoTextAnalyzer(object):
                         
                         length = text_stats.api.TextStats(x.sent).n_words
                         if length>longest_length:
-                            longest_sent = str(x.sent).strip()
+                            longest_sent = modify_text.remove_extra_spaces(str(x.sent)).strip()
                             longest_length = length
                         
                         n_words += length
@@ -655,7 +654,6 @@ class AdoTextAnalyzer(object):
 
         def start_analyze(self):
             df, summary, longest_sentence = self.process_text()
-            longest_sentence = modify_text.remove_extra_spaces(longest_sentence)
 
             count_lemmas = df.pivot_table(index=['lemma', 'pos'], aggfunc='size')
             
@@ -1305,15 +1303,13 @@ class AdoTextAnalyzer(object):
 
         def process(self):
             dfs = {}
-            
+            rows = []
             for sent in self.shared_object.doc.sents:
-                rows = []
                 n_sent = len(dfs)
                 for count_token, x in enumerate(sent):
                     #if x.pos_ == 'SPACE':
                     #    continue
-                    
-                    
+
                     ######################
                     # Remove extra spaces
                     #####################
@@ -1327,6 +1323,17 @@ class AdoTextAnalyzer(object):
                         
                     if count_token+1 < len(sent) and sent[count_token+1].orth_ in ['[', '(', '"']:
                         is_white_space = False
+
+                    if the_orth == '' and not is_white_space:
+                        continue
+                    if the_orth.strip(' ') == '':
+                        if len(rows)==0:
+                            continue
+                        elif not rows[-1]['whitespace']:
+                            rows[-1]['whitespace'] = True
+                            continue
+                    elif '\n' in the_orth:
+                        the_orth = the_orth.strip(' ')
                     ###################################
 
                     if x.pos_ == 'PUNCT' or x.pos_ == 'SPACE':
@@ -1423,6 +1430,7 @@ class AdoTextAnalyzer(object):
                 if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
                     df_lemma =  pd.DataFrame(rows)
                     dfs[n_sent] = df_lemma
+                    rows = []
 
             df_lemma = pd.concat(dfs.values())
             n_words = len(df_lemma[df_lemma['pos']!='PUNCT'])
