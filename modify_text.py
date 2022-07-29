@@ -36,7 +36,7 @@ def standardize_patch(text):
 # Leave a space around quotation marks for better sentence splitting
 def standardize_old(text):
     text = text.replace('\ufeff','')
-    text = text.replace("\n", " \n")
+    text = text.replace("\n", " \n") # necessary for restoring texts
     text = text.replace("\r", " ")
     text = re.sub("’","'",text)
     text = re.sub("‘","'",text)
