@@ -405,7 +405,7 @@ class AdoTextAnalyzer(object):
                         
                         length = text_stats.api.TextStats(x.sent).n_words
                         if length>longest_length:
-                            longest_sent = str(x.sent)
+                            longest_sent = str(x.sent).strip()
                             longest_length = length
                         
                         n_words += length
