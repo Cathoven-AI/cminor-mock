@@ -1,0 +1,2 @@
+include *.py *.txt README LICENSE AUTHORS CHANGELOG
+recursive-include src *.xlsx *.csv *.py *.pkl *.npy *.h5 *.txt *.sav
