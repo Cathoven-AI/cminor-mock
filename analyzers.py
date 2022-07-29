@@ -41,7 +41,7 @@ class AdoTextAnalyzer(object):
                         'return_tense_count':return_tense_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
                         'return_clause_stats':return_clause_stats,'return_final_levels':return_final_levels}
 
-        if self.cefr is None or temp_settings!=self.cefr.__settings:
+        if self.cefr is None or temp_settings!=self.cefr.print_settings():
             if self.doc is None:
                 self.doc = nlp(self.text)
             self.cefr = self.CefrAnalyzer(self)
