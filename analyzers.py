@@ -866,7 +866,6 @@ class AdoTextAnalyzer(object):
                     tense = ' '.join(tense.split(' ')[:-1]+['done'])
                 elif tense == 'has doing':
                     tense = 'is doing'
-                    
                 '''
                 if len(id_range)>0:
                     length = x.i-min(id_range)+1
@@ -1051,8 +1050,11 @@ class AdoTextAnalyzer(object):
                     ('have been doing', 'ger.'):5,
                     ('have been done', 'ger.'):5}
                 
-                
-            level = tenses.get((tense1,tense2),5)
+            if tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
+                level = 0
+            else:
+                level = tenses.get((tense1,tense2),5)
+
             #if form in ['do do','did do','does do']:
             #    if not any([y.lemma_ == 'not' for y in doc[x.head.i:x.i]]):
             #        level = 1
@@ -1060,6 +1062,7 @@ class AdoTextAnalyzer(object):
                 level = max(1,level)
             elif any([form.startswith(m) for m in ['can','should','must']]):
                 level = max(0.5,level)
+
             return level
 
         def get_subtree(self,members,new_members):
@@ -1157,6 +1160,8 @@ class AdoTextAnalyzer(object):
                     elif x.tag_=='VBN' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
                         clause_form = 'part. (past)'
                     elif x.tag_=='VBG' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
+                        clause_form = None
+                    elif x.tag_=='VB' and all(self.shared_object.doc[i].pos_!='AUX' for i in range(*sorted([first.head.i,first.i]))):
                         clause_form = None
                     else:
                         clause_form = '(that)'
