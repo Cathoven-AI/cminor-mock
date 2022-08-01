@@ -1,9 +1,13 @@
+import os
+#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import numpy as np
 import pandas as pd
 from . import spacy
 from . import word as solar_word
 from . import modify_text
-import pickle, re, tensorflow, os, textstat
+import pickle, re, tensorflow, textstat
 from textacy import text_stats
 import Levenshtein as lev
 from lexical_diversity import lex_div as ld

@@ -1,3 +1,7 @@
+import os
+#os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
 import spacy, re, textacy, pickle, pronouncing
 from textacy import text_stats
 import pandas as pd
@@ -940,7 +944,7 @@ def initialize():
     global g2p,nlp,no_singular,mismatches,mismatches_dict,corpus_words,corpus_freq,most_freq_50, aoa_words, aoa, abstract_words, abstract, nsyl_words, nsyl, neural_model, kde_model, transformer, outlier_ranges
 
     g2p = G2p()
-    spacy.prefer_gpu()
+    #spacy.prefer_gpu()
     nlp = spacy.load("en_core_web_trf")
     nlp.add_pipe("sentencizer", before="parser")
     

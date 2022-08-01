@@ -1,9 +1,6 @@
 # Spacy stuff
 import spacy, re
 from spacy.language import Language
-#from solar.utils import standardize, standardize_old
-#from solar.modify_text import standardize_old
-
 from .. import modify_text
 standardize_old = modify_text.standardize_old
 
@@ -69,25 +66,31 @@ class SolarSpacy(Language):
 				if sent_end:
 					if not token.is_punct:
 						token.is_sent_start = True
+						print(token)
 					elif counter > 1 and token.text != '"':
 							token.is_sent_start = False
 					sent_end = False
 				elif counter > 1 and token.text != '"':
 						token.is_sent_start = False
-
 				if token.is_punct and token.text.strip() not in [',', ';', '"', '—', '-', "'", '(', ')', '[', ']','']:
 					sent_end = True
 			else:
 				counter = 0
-				if token.i<len(doc)-1 and "\n" in token.orth_:
-					token.is_sent_start = False
-					doc[token.i+1].is_sent_start = True
-				elif bool(re.match('[a-z]',token.text[0])):
+				if token.text.strip()!='':
 					j = token.i-1
-					while (j>=0 and doc[j].text.strip(' ')==''):
+					while (j>0 and doc[j].text.strip(' ')==''):
 						j -= 1
-					if j>0 and doc[j].text == '"':
-						token.is_sent_start = False
+					if doc[j].text == '"':
+						if bool(re.match('[a-z,\)\]]',token.text[0])):
+							token.is_sent_start = False
+						else:
+							token.is_sent_start = True
+					elif '\n' in doc[j].text:
+						doc[j].is_sent_start = False
+						token.is_sent_start = True
+						if token.i<len(doc)-2:
+							doc[token.i+1].is_sent_start = False
+				
 			# Not using .is_quote so that we don't mix-and-match different kinds of quotes (e.g. ' and ")
 			# Especially useful since quotes don't seem to work well with .is_left_punct or .is_right_punct
 			if token.text == '"':
