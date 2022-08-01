@@ -2,7 +2,10 @@
 import spacy, re
 from spacy.language import Language
 #from solar.utils import standardize, standardize_old
-from solar.modify_text import standardize_old
+#from solar.modify_text import standardize_old
+
+from .. import modify_text
+standardize_old = modify_text.standardize_old
 
 
 class SolarSpacy(Language):
