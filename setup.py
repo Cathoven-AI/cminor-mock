@@ -15,7 +15,7 @@ with open('requirements.txt', 'r') as f:
     requirements = f.read().strip().split('\n')
 
 setup(
-    name='solarcat',
+    name='solar',
     version='1.5.2',
     description='SOLAR: System of LAnguage Retention',
     long_description=long_description,
