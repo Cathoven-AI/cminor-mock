@@ -1149,16 +1149,16 @@ class AdoTextAnalyzer(object):
                 for child in x.children:
                     if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
                         children.append(child.i)
-                        if clause_form is None and child.i<x.i and child.tag_ in ['WRB','WDT','WP','WP$','IN'] and child.pos_!='ADP':
+                        if clause_form is None and child.i<x.i and child.tag_ in ['WRB','WDT','WP','WP$','IN'] and child.pos_!='ADP' and first.head.i<x.i:
                             clause_form = child.lemma_
                 subtree = sorted(self.get_subtree([x.i],children))
-                if clause_form is None:
+                if clause_form is None and first.head.i<x.i:
                     for grandchild in sum([list(child.children) for child in x.children if child.i<x.i and child.pos_ not in ['VERB','AUX']],[]):
                         if grandchild.tag_ in ['WRB','WDT','WP','WP$']:
                             clause_form = grandchild.lemma_
                             break
                 if clause_form is None:
-                    if self.shared_object.doc[subtree[0]].tag_ in ['WRB','WDT','WP','WP$']:
+                    if self.shared_object.doc[subtree[0]].tag_ in ['WRB','WDT','WP','WP$'] and first.head.i<x.i:
                         clause_form = self.shared_object.doc[subtree[0]].lemma_
                     elif x.tag_=='VBN' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
                         clause_form = 'part. (past)'
