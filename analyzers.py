@@ -1023,8 +1023,6 @@ class AdoTextAnalyzer(object):
             if tense2.startswith('part'):
                 tense1 = None
                 tense2 = None
-            elif tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
-                tense1 = 'have got (POSSESS)'
             return tense1,tense2
 
         def tense2level(self,form,tense1,tense2,x):
@@ -1034,7 +1032,6 @@ class AdoTextAnalyzer(object):
                     ('do', 'ind. (past)'):0.5,
                     ('be doing', 'ind. (present)'):0.5,
                     ('have done', 'ind. (present)'):1,
-                    ('have got (POSSESS)', 'ind. (present)'):0,
                     ('be doing', 'ind. (past)'):1.5,
                     ('be done', 'inf.'):2,
                     ('be done', 'ind. (present)'):2,
@@ -1066,8 +1063,10 @@ class AdoTextAnalyzer(object):
                 level = max(1,level)
             elif any([form.startswith(m) for m in ['can','should','must']]):
                 level = max(0.5,level)
-
-            return level
+            elif tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
+                level = 0
+                form = 'have got (POSSESS)'
+            return level, form
 
         def get_subtree(self,members,new_members):
             if len(new_members) == 0:
@@ -1383,7 +1382,7 @@ class AdoTextAnalyzer(object):
                         if form is not None:
                             tense1, tense2 = self.classify_tense(form,x)
                             if tense1 is not None and tense2 is not None:
-                                tense_level = self.tense2level(form,tense1,tense2,x)
+                                tense_level, form = self.tense2level(form,tense1,tense2,x)
                                 
                         clause_form, clause, clause_span, clause_level = self.get_clause(x)
                         if str(the_orth).lower() in stopwords.words('english'):
