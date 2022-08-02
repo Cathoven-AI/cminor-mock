@@ -1166,7 +1166,7 @@ class AdoTextAnalyzer(object):
                         clause_form = None
                     elif x.tag_=='VB' and all(self.shared_object.doc[i].pos_!='AUX' for i in range(*sorted([first.head.i,first.i]))):
                         clause_form = None
-                    else:
+                    elif first.head.i<x.i:
                         clause_form = '(that)'
                     
                 last_i = sorted(set(subtree))[-1]
