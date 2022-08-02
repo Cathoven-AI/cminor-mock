@@ -1023,6 +1023,8 @@ class AdoTextAnalyzer(object):
             if tense2.startswith('part'):
                 tense1 = None
                 tense2 = None
+            elif tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
+                tense1 = 'have got (POSSESS)'
             return tense1,tense2
 
         def tense2level(self,form,tense1,tense2,x):
@@ -1032,6 +1034,7 @@ class AdoTextAnalyzer(object):
                     ('do', 'ind. (past)'):0.5,
                     ('be doing', 'ind. (present)'):0.5,
                     ('have done', 'ind. (present)'):1,
+                    ('have got (POSSESS)', 'ind. (present)'):0,
                     ('be doing', 'ind. (past)'):1.5,
                     ('be done', 'inf.'):2,
                     ('be done', 'ind. (present)'):2,
@@ -1054,10 +1057,7 @@ class AdoTextAnalyzer(object):
                     ('have been doing', 'ger.'):5,
                     ('have been done', 'ger.'):5}
                 
-            if tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
-                level = 0
-            else:
-                level = tenses.get((tense1,tense2),5)
+            level = tenses.get((tense1,tense2),5)
 
             #if form in ['do do','did do','does do']:
             #    if not any([y.lemma_ == 'not' for y in doc[x.head.i:x.i]]):
@@ -1449,9 +1449,13 @@ class AdoTextAnalyzer(object):
             clause_levels = []
             sentences = {}
             for sentence_id, df in dfs.items():
-                clause_level = self.sentence_clause_level(df['CEFR_clause'].dropna().values)
-                clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
-                
+                #clause_level = self.sentence_clause_level(df['CEFR_clause'].dropna().values)
+                #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
+                total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
+                level_by_clause = max(max(df['CEFR_clause'].fillna(0)),sum(df['CEFR_clause'].fillna(0).values*df['clause_span'].fillna('').apply(len).values)/total_span)
+                level_by_length = 1.1**len(df[df['pos']!='PUNCT'])-1
+                clause_levels.append(min(max(level_by_length,level_by_clause),6))
+
                 if self.__settings['return_sentences']:
                     lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR']].to_dict(orient='list')
                     df2 = df[['form','tense1','tense2','CEFR_tense','tense_span']].dropna()
@@ -1532,24 +1536,10 @@ class AdoTextAnalyzer(object):
                 mean_clause = 0
             else:
                 mean_clause = n_clauses/n_clausal
-            if len(df_lemma[~pd.isnull(df_lemma['CEFR_clause'])])>0:
-                level = max([df_lemma['CEFR_clause'].max(),sum(np.array(clause_levels)/n_words)])
-            else:
-                level = sum(np.array(clause_levels)/n_words)
+
+            level = np.percentile(clause_levels,80)
 
             mean_length = n_words/len(dfs)
-
-            if mean_length>=19:
-                level = max(5,level)
-            elif mean_length>=17.3:
-                level = max(4,level)
-            elif mean_length>=14.2:
-                level = max(3,level)
-            elif mean_length>=10.8:
-                level = max(2,level)
-            elif mean_length>=7.9:
-                level = max(1,level)
-
 
             clause_stats = {'p_clausal':n_clausal/len(dfs),'mean_clause':mean_clause,'mean_length':mean_length,'level':level,'n_words':n_words}
             

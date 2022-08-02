@@ -66,7 +66,6 @@ class SolarSpacy(Language):
 				if sent_end:
 					if not token.is_punct:
 						token.is_sent_start = True
-						print(token)
 					elif counter > 1 and token.text != '"':
 							token.is_sent_start = False
 					sent_end = False
@@ -76,7 +75,7 @@ class SolarSpacy(Language):
 					sent_end = True
 			else:
 				counter = 0
-				if token.text.strip()!='':
+				if token.text.strip()!='' and token.i>=1:
 					j = token.i-1
 					while (j>0 and doc[j].text.strip(' ')==''):
 						j -= 1
@@ -84,7 +83,11 @@ class SolarSpacy(Language):
 						if bool(re.match('[a-z,\)\]]',token.text[0])):
 							token.is_sent_start = False
 						else:
-							token.is_sent_start = True
+							k = j-1
+							while (k>0 and doc[k].text.strip(' ')==''):
+								k -= 1
+							if k>=0 and doc[k].text.strip(' ')!=',':
+								token.is_sent_start = True
 					elif '\n' in doc[j].text:
 						doc[j].is_sent_start = False
 						token.is_sent_start = True
