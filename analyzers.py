@@ -1240,8 +1240,10 @@ class AdoTextAnalyzer(object):
                     level = 2
                 elif (leftest_child is not None and leftest_child.tag_=='IN' or self.shared_object.doc[min(subtree)].tag_=='IN') and first.tag_ in ['VBG','VBN'] and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([min(subtree),first.i]))]):
                     level = 4
-                elif clause_form in ['that','(that)','when','because']:
+                elif clause_form in ['that','(that)','when']:
                     level = 1
+                elif clause_form == 'because':
+                    level = 0
                 elif clause_form in ['whether','since','as']:
                     level = 2
                 elif clause_form in ['where','how','what']:
