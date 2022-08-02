@@ -1168,6 +1168,8 @@ class AdoTextAnalyzer(object):
                         clause_form = None
                     elif first.head.i<x.i:
                         clause_form = '(that)'
+                if clause_form is not None and not (all(self.shared_object.doc[y].lemma_!=')' for y in range(*sorted([first.head.i,first.i]))) or any(self.shared_object.doc[y].lemma_=='(' for y in range(*sorted([first.head.i,first.i])))):
+                    clause_form = None
                     
                 last_i = sorted(set(subtree))[-1]
                 if first.dep_ == 'ccomp' and (self.shared_object.doc[min(last_i+1,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+2,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+3,len(self.shared_object.doc)-1)].lemma_=='so'):
