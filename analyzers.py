@@ -1457,7 +1457,8 @@ class AdoTextAnalyzer(object):
                 total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
                 level_by_clause = max(max(df['CEFR_clause'].fillna(0)),sum(df['CEFR_clause'].fillna(0).values*df['clause_span'].fillna('').apply(len).values)/total_span)
                 level_by_length = 1.1**len(df[df['pos']!='PUNCT'])-1
-                clause_levels.append(min(max(level_by_length,level_by_clause),6))
+                clause_level = min(max(level_by_length,level_by_clause),6)
+                clause_levels.append(clause_level)
 
                 if self.__settings['return_sentences']:
                     lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR']].to_dict(orient='list')
