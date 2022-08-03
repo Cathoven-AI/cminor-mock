@@ -1188,18 +1188,41 @@ class AdoTextAnalyzer(object):
                             clause_form = grandchild.lemma_
                             break
                 subtree = sorted(self.get_subtree([x.i],children))
-
+                    
             elif first.dep_=='prep' and first.pos_=='VERB' and first.tag_=='VBN':
                 subtree = self.get_subtree([x.i],[child.i for child in x.children])
                 clause_form = 'part. (past)'
                 
-            elif first.dep_ == 'parataxis':
-                clause_form = '(parataxis)'
+            #elif first.dep_ == 'parataxis':
+            #    clause_form = '(parataxis)'
                 
-            if subtree is not None and clause_form is not None:
+            if subtree is None or clause_form is None:
+                if x.dep_=='conj' and x.pos_ in ['VERB','AUX']:
+                    temp_children = list(x.children)
+                    if len(temp_children)>0 and temp_children[0].dep_ == 'mark':
+                        clause_form = temp_children[0].lemma_
+                        subtree = sorted(self.get_subtree([x.i],children))
+                    else:
+                        temp_siblings = []
+                        has_subject = False
+                        for sibling in x.head.children:
+                            if sibling.i<x.i and sibling.pos_!= 'PUNCT' and sibling.pos_!= 'SPACE':
+                                temp_siblings.append(sibling)
+                            if sibling.dep_ == 'nsubj':
+                                has_subject = True
+                        if has_subject and len(temp_siblings)>0 and temp_siblings[-1].dep_ == 'cc' and temp_siblings[-1].i<x.i:
+                            clause_form = temp_siblings[-1].lemma_
+                            clause = 'cc'
+                            subtree = sorted(self.get_subtree([x.i],children)+[temp_siblings[-1].i])
+                elif x.pos_ == 'CONJ' and x.head.dep_ == 'ROOT' and x.i<x.head.i:
+                    clause_form = x.lemma_
+                    clause = 'cc'
+                    subtree = list(range(x.i,x.head.i+1))
+
+            if subtree is not None and clause_form is not None and len(subtree)>0:
                 if clause_form == '(parenthesis)':
                     clause = 'parenthesis'
-                else:
+                elif clause != 'cc':
                     clause = first.dep_
                 if clause in ['ccomp','csubj','pcomp']:
                     clause = 'ncl'
@@ -1242,7 +1265,7 @@ class AdoTextAnalyzer(object):
                     level = 4
                 elif clause_form in ['that','(that)','when']:
                     level = 1
-                elif clause_form == 'because':
+                elif clause_form in ['because','so','but']:
                     level = 0
                 elif clause_form in ['whether','since','as']:
                     level = 2
@@ -1260,6 +1283,12 @@ class AdoTextAnalyzer(object):
                 
             elif clause == 'parenthesis':
                 level = 2
+
+            elif clause == 'cc':
+                if clause_form == 'yet':
+                    level = 2
+                else:
+                    level = 0
                 
             return level
 
@@ -1542,7 +1571,7 @@ class AdoTextAnalyzer(object):
                 mean_clause = n_clauses/n_clausal
 
             level = np.percentile(clause_levels,80)
-            
+
             mean_length = n_words/len(dfs)
 
             clause_stats = {'p_clausal':n_clausal/len(dfs),'mean_clause':mean_clause,'mean_length':mean_length,'level':round(level,1),'n_words':n_words}

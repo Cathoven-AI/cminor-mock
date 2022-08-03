@@ -87,7 +87,7 @@ class SolarSpacy(Language):
 							while (k>0 and doc[k].text.strip(' ')==''):
 								k -= 1
 							if k>=0 and doc[k].text.strip(' ')!=',':
-								token.is_sent_start = True
+								doc[k].is_sent_start = True
 					elif '\n' in doc[j].text:
 						doc[j].is_sent_start = False
 						token.is_sent_start = True
