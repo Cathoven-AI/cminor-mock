@@ -1445,7 +1445,7 @@ class AdoTextAnalyzer(object):
                     rows = []
 
             df_lemma = pd.concat(dfs.values())
-            n_words = len(df_lemma[df_lemma['pos']!='PUNCT'])
+            n_words = len(df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')])
             
             n_clausal = 0
             n_clauses = 0
@@ -1456,7 +1456,7 @@ class AdoTextAnalyzer(object):
                 #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
                 total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
                 level_by_clause = max(max(df['CEFR_clause'].fillna(0)),sum(df['CEFR_clause'].fillna(0).values*df['clause_span'].fillna('').apply(len).values)/total_span)
-                level_by_length = 1.1**len(df[df['pos']!='PUNCT'])-1
+                level_by_length = 1.1**len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])-1
                 clause_level = min(max(level_by_length,level_by_clause),6)
                 clause_levels.append(clause_level)
 
@@ -1486,7 +1486,7 @@ class AdoTextAnalyzer(object):
                     _,cumsum_series = self.sum_cumsum(df[df['CEFR']>=-1])
 
                     level_dict['CEFR_vocabulary'] = self.ninety_five(cumsum_series)
-                    level_dict['CEFR_clause'] = clause_level
+                    level_dict['CEFR_clause'] = round(clause_level,1)
 
                     sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict}
                 
@@ -1542,10 +1542,10 @@ class AdoTextAnalyzer(object):
                 mean_clause = n_clauses/n_clausal
 
             level = np.percentile(clause_levels,80)
-
+            
             mean_length = n_words/len(dfs)
 
-            clause_stats = {'p_clausal':n_clausal/len(dfs),'mean_clause':mean_clause,'mean_length':mean_length,'level':level,'n_words':n_words}
+            clause_stats = {'p_clausal':n_clausal/len(dfs),'mean_clause':mean_clause,'mean_length':mean_length,'level':round(level,1),'n_words':n_words}
             
             sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type = self.count_cefr(df_lemma)
             
