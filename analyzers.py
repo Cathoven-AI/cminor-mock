@@ -1208,12 +1208,14 @@ class AdoTextAnalyzer(object):
                         for sibling in x.head.children:
                             if sibling.i<x.i and sibling.pos_!= 'PUNCT' and sibling.pos_!= 'SPACE':
                                 temp_siblings.append(sibling)
-                            if sibling.dep_ == 'nsubj':
-                                has_subject = True
-                        if has_subject and len(temp_siblings)>0 and temp_siblings[-1].dep_ == 'cc' and temp_siblings[-1].i<x.i:
-                            clause_form = temp_siblings[-1].lemma_
-                            clause = 'cc'
-                            subtree = sorted(self.get_subtree([x.i],children)+[temp_siblings[-1].i])
+                        if len(temp_siblings)>0:
+                            for i in range(temp_siblings[-1].i,x.i):
+                                if self.shared_object.doc[i].dep_ == 'nsubj':
+                                    has_subject = True
+                            if has_subject and temp_siblings[-1].dep_ == 'cc' and temp_siblings[-1].i<x.i:
+                                clause_form = temp_siblings[-1].lemma_
+                                clause = 'cc'
+                                subtree = sorted(self.get_subtree([x.i],children)+[temp_siblings[-1].i])
                 elif x.pos_ == 'CONJ' and x.head.dep_ == 'ROOT' and x.i<x.head.i:
                     clause_form = x.lemma_
                     clause = 'cc'
@@ -1485,8 +1487,8 @@ class AdoTextAnalyzer(object):
                 #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
                 total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
                 level_by_clause = max(max(df['CEFR_clause'].fillna(0)),sum(df['CEFR_clause'].fillna(0).values*df['clause_span'].fillna('').apply(len).values)/total_span)
-                level_by_length = 1.1**len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])-1
-                clause_level = min(max(level_by_length,level_by_clause),6)
+                level_by_length = min(max(0,1.1**len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])-1.5),7)
+                clause_level = min(np.mean([level_by_length,level_by_clause]),6)
                 clause_levels.append(clause_level)
 
                 if self.__settings['return_sentences']:
@@ -1570,7 +1572,7 @@ class AdoTextAnalyzer(object):
             else:
                 mean_clause = n_clauses/n_clausal
 
-            level = np.percentile(clause_levels,80)
+            level = np.percentile(clause_levels,90)
 
             mean_length = n_words/len(dfs)
 
