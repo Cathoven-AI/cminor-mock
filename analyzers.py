@@ -915,7 +915,9 @@ class AdoTextAnalyzer(object):
                     
                 tense = tense.replace('ca ','can ').replace('wo ','will ').replace('sha ','shall ').replace('ai ',"ain't ")
                     
-                if tense in ['has','have','had'] and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']:
+                if tense in ['has','have','had'] and (
+                    (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']) or (
+                        x.pos_!='AUX' and any([child.dep_=='dobj' for child in x.children if x.i<child.i]))):
                     tense = {'has':'does','have':'do','had':'did'}[tense]
                 elif tense == 'had do':
                     if self.shared_object.doc[max(0,x.i-1)].orth_.lower()!='better':
