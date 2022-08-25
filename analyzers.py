@@ -1011,6 +1011,8 @@ class AdoTextAnalyzer(object):
             elif form=='do':
                 if all([child.dep_!='nsubj' for child in x.children if child.i<x.i]) and str(x.morph) == 'VerbForm=Inf':
                     tense2 = 'imp.'
+                elif "VerbForm=Fin" in str(x.morph):
+                    tense2 = 'ind. (present)'
                 else:
                     tense2 = 'inf.'
             elif form.endswith('do'):
