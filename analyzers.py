@@ -30,7 +30,7 @@ class AdoTextAnalyzer(object):
 
     def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                    return_tense_count=True,return_tense_stats=True,return_clause_count=True,
+                    return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                     return_clause_stats=True,return_final_levels=True,return_result=False):
         text = text.strip()
         if text!=self.text:
@@ -42,7 +42,7 @@ class AdoTextAnalyzer(object):
 
         temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
                         'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
-                        'return_tense_count':return_tense_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
+                        'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
                         'return_clause_stats':return_clause_stats,'return_final_levels':return_final_levels}
 
         if self.cefr is None or temp_settings!=self.cefr.print_settings():
@@ -51,7 +51,7 @@ class AdoTextAnalyzer(object):
             self.cefr = self.CefrAnalyzer(self)
             self.cefr.start_analyze(propn_as_lowest,intj_as_lowest,keep_min,
                         return_sentences, return_wordlists,return_vocabulary_stats,
-                        return_tense_count,return_tense_stats,return_clause_count,
+                        return_tense_count,return_tense_term_count,return_tense_stats,return_clause_count,
                         return_clause_stats,return_final_levels)
         if return_result:
             return self.cefr.result
@@ -749,8 +749,66 @@ class AdoTextAnalyzer(object):
 
             self.__settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,
                     'return_sentences':True, 'return_wordlists':True,'return_vocabulary_stats':True,
-                    'return_tense_count':True,'return_tense_stats':True,'return_clause_count':True,
+                    'return_tense_count':True,'return_tense_term_count':True,'return_tense_stats':True,'return_clause_count':True,
                     'return_clause_stats':True,'return_final_levels':True}
+
+            self.tense_level_dict = {('unbound modal verbs', 'fin.'):0,
+                    ('do', 'inf.'):0,
+                    ('do', 'imp.'):0,
+                    ('do', 'ind. (present)'):0,
+                    ('do', 'ind. (past)'):0.5,
+                    ('be doing', 'ind. (present)'):0.5,
+                    ('have done', 'ind. (present)'):1,
+                    ('be doing', 'ind. (past)'):1.5,
+                    ('be done', 'inf.'):2,
+                    ('be done', 'ind. (present)'):2,
+                    ('be done', 'ind. (past)'):2,
+                    ('have done', 'ind. (past)'):2,
+                    ('have been doing', 'ind. (present)'):2.5,
+                    ('have been done', 'ind. (present)'):2.5,
+                    ('be being done', 'ind. (present)'):2.5,
+                    ('do', 'ger.'):1,
+                    ('do', 'part. (past)'):2,
+                    ('be done', 'ger.'):2.5,
+                    ('be doing', 'inf.'):3,
+                    ('have done', 'inf.'):3,
+                    ('have been doing', 'ind. (past)'):3.5,
+                    ('have been done', 'ind. (past)'):3.5,
+                    ('be being done', 'ind. (past)'):3.5,
+                    ('have been done', 'inf.'):4,
+                    ('have done', 'ger.'):4,
+                    ('have been doing', 'inf.'):4.5,
+                    ('have been doing', 'ger.'):5,
+                    ('have been done', 'ger.'):5}
+
+            self.tense_name_dict = {('unbound modal verbs', 'fin.'):'Unbound modal verb',
+                    ('do', 'inf.'):'Infinitive',
+                    ('do', 'imp.'):'Imperative',
+                    ('do', 'ind. (present)'):'Present simple',
+                    ('do', 'ind. (past)'):'Past simple',
+                    ('be doing', 'ind. (present)'):'Present continuous',
+                    ('have done', 'ind. (present)'):'Present perfect',
+                    ('be doing', 'ind. (past)'):'Past continuous',
+                    ('be done', 'inf.'):'Infinitive passive',
+                    ('be done', 'ind. (present)'):'Present simple passive',
+                    ('be done', 'ind. (past)'):'Past simple passive',
+                    ('have done', 'ind. (past)'):'Past perfect',
+                    ('have been doing', 'ind. (present)'):'Present perfect continuous',
+                    ('have been done', 'ind. (present)'):'Present perfect passive',
+                    ('be being done', 'ind. (present)'):'Present continuous passive',
+                    ('do', 'ger.'):'Gerund simple',
+                    ('do', 'part. (past)'):'Past participle simple',
+                    ('be done', 'ger.'):'Gerund perfect',
+                    ('be doing', 'inf.'):'Infinitive continuous',
+                    ('have done', 'inf.'):'Infinitive perfect',
+                    ('have been doing', 'ind. (past)'):'Past perfect continuous',
+                    ('have been done', 'ind. (past)'):'Past perfect passive',
+                    ('be being done', 'ind. (past)'):'Past continuous passive',
+                    ('have been done', 'inf.'):'Infinitive perfect passive',
+                    ('have done', 'ger.'):'Gerund perfect passive',
+                    ('have been doing', 'inf.'):'Infinitive perfect continuous',
+                    ('have been doing', 'ger.'):'Gerund perfect continuous',
+                    ('have been done', 'ger.'):'Gerund perfect passive'}
 
             #self.sentences = None
             #self.wordlists = None
@@ -780,15 +838,13 @@ class AdoTextAnalyzer(object):
             #        proceed = True
             if x.orth_.lower() == 'being' and str(x.morph)=='VerbForm=Ger' and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_!='VERB':
                 tense.append('being')
-            elif x.head == x or x.dep_ == 'ROOT' or x.pos_ != 'AUX':
+            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ != 'aux':
                 tense, id_range = self.get_aux(x)
                 if len(tense) == 0 and x.dep_=='conj':
                     first_verb = x.head
                     while first_verb.dep_=='conj':
                         first_verb = first_verb.head
                     tense, id_range = self.get_aux(first_verb)
-
-
                 '''
                 if x.tag_ in ['VBZ','VBP','VB']: #do/does
                     tense.append('do')
@@ -859,7 +915,9 @@ class AdoTextAnalyzer(object):
                     
                 tense = tense.replace('ca ','can ').replace('wo ','will ').replace('sha ','shall ').replace('ai ',"ain't ")
                     
-                if tense in ['has','have','had'] and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']:
+                if tense in ['has','have','had'] and (
+                    (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']) or (
+                        x.pos_!='AUX' and any([child.dep_=='dobj' for child in x.children if x.i<child.i]))):
                     tense = {'has':'does','have':'do','had':'did'}[tense]
                 elif tense == 'had do':
                     if self.shared_object.doc[max(0,x.i-1)].orth_.lower()!='better':
@@ -920,9 +978,8 @@ class AdoTextAnalyzer(object):
         def get_aux(self,x):
             tense = []
             id_range = []
-            if x.dep_=='xcomp':
+            if x.dep_=='xcomp' and list(x.children)[0].lemma_!='to' and list(x.children)[0].pos_!='PART':
                 return tense, id_range
-
             for child in x.children:
                 if child.dep_ in ['aux','auxpass'] and child.i<x.i:# and child.i<x_i
                     if child.orth_ in ['…','...',';','-','—','–',':']:
@@ -936,31 +993,35 @@ class AdoTextAnalyzer(object):
                         id_range.append(child.i)
             return tense, id_range
 
-        def classify_tense(self,tense,x):
+        def classify_tense(self,form,x):
             tense2 = None
             tense1 = None
             
             #if x.head.pos_=='ADP' and all([y.pos_ in ['ADV','ADP','VERB','AUX','PART'] for y in doc[x.head.i:x.i]]):
-            #    tense = ' '.join(tense.split(' ')[1:])
+            #    form = ' '.join(form.split(' ')[1:])
                 
-            if tense.startswith("ain't"):
+            if form.startswith("ain't"):
                 tense2 = 'contextual'
-            elif tense == 'had better do':
+            elif form == 'had better do':
                 tense2 = 'inf.'
-            elif sum([tense.startswith(y) for y in ['did','was','were','had']])>0:
+            elif sum([form.startswith(y) for y in ['did','was','were','had','got']])>0:
                 tense2 = 'ind. (past)'
-            elif sum([tense.startswith(y) for y in ['do ','does','has','have','am','is','are']])>0:
+            elif form == 'do do' and x.i>=3 and self.shared_object.doc[x.i-1].lemma_=='you' and self.shared_object.doc[x.i-2].lemma_=='not' and self.shared_object.doc[x.i-3].lemma_=='do' and all([child.orth_!='?' for child in x.children if x.i<child.i]):
+                tense2 = 'imp.'
+            elif sum([form.startswith(y) for y in ['do ','does','has','have','am','is','are','gets']])>0:
                 tense2 = 'ind. (present)'
-            elif tense=='do':
-                if str(x.morph) == 'VerbForm=Inf' and self.shared_object.doc[max(0,x.i-1)].lemma_!='you':
-                    tense2 = 'inf.'
-                else:
+            elif form=='do':
+                if all([child.dep_!='nsubj' for child in x.children if child.i<x.i]) and str(x.morph) == 'VerbForm=Inf':
+                    tense2 = 'imp.'
+                elif "VerbForm=Fin" in str(x.morph):
                     tense2 = 'ind. (present)'
-            elif tense.endswith('do'):
+                else:
+                    tense2 = 'inf.'
+            elif form.endswith('do'):
                 tense2 = 'inf.'
-            elif tense=='done':
+            elif form=='done':
                 tense2 = 'part. (past)'
-            elif tense.split(' ')[0].endswith('ing'):
+            elif form.split(' ')[0].endswith('ing'):
                 tense2 = 'part. (present)'
                 if x.dep_ == 'conj':
                     first = x.head
@@ -975,42 +1036,42 @@ class AdoTextAnalyzer(object):
             else:
                 tense2 = 'inf.'
 
-            if tense.endswith('done'):
+            if form.endswith('done'):
                 if tense2 == 'part. (past)':
                     tense1 = 'do'
                 else:
-                    if tense.endswith('been done'):
+                    if form.endswith('been done'):
                         tense1 = 'have been done'
-                    elif tense.endswith('being done'):
-                        if tense == 'being done':
+                    elif form.endswith('being done'):
+                        if form == 'being done':
                             tense1 = 'be done'
                         else:
                             tense1 = 'be being done'
-                    elif tense in ['have done','has done','had done']:
+                    elif form in ['have done','has done','had done']:
                         tense1 = 'have done'
-                    elif tense.startswith('having'):
-                        tense1 = 'have '+' '.join(tense.split(' ')[1:])
+                    elif form.startswith('having'):
+                        tense1 = 'have '+' '.join(form.split(' ')[1:])
                     else:
                         tense1 = 'be done'
                     
-            elif tense.endswith('been'):
+            elif form.endswith('been'):
                 tense1 = 'have done'
                 
-            elif tense.endswith('doing'):
-                if tense.endswith('been doing'):
+            elif form.endswith('doing'):
+                if form.endswith('been doing'):
                     tense1 = 'have been doing'
                 else:
                     if tense2 in ['part. (present)','ger.']:
                         tense1 = 'do'
-                    elif tense.startswith('having'):
-                        tense1 = 'have '+' '.join(tense.split(' ')[1:])
-                    else:
+                    elif form.startswith('having'):
+                        tense1 = 'have '+' '.join(form.split(' ')[1:])
+                    elif form.startswith('be '):
                         tense1 = 'be doing'
                 
-            elif tense == 'being':
+            elif form == 'being':
                 tense1 = 'do'
                 
-            elif tense in ['has','had','had']:
+            elif form in ['has','had','had']:
                 if self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_ == 'PUNCT':
                     tense1 = 'have done'
                 else:
@@ -1026,33 +1087,7 @@ class AdoTextAnalyzer(object):
             return tense1,tense2
 
         def tense2level(self,form,tense1,tense2,x):
-            tenses = {('unbound modal verbs', 'fin.'):0,
-                    ('do', 'inf.'):0,
-                    ('do', 'ind. (present)'):0,
-                    ('do', 'ind. (past)'):0.5,
-                    ('be doing', 'ind. (present)'):0.5,
-                    ('have done', 'ind. (present)'):1,
-                    ('be doing', 'ind. (past)'):1.5,
-                    ('be done', 'inf.'):2,
-                    ('be done', 'ind. (present)'):2,
-                    ('be done', 'ind. (past)'):2,
-                    ('have done', 'ind. (past)'):2,
-                    ('have been doing', 'ind. (present)'):2.5,
-                    ('have been done', 'ind. (present)'):2.5,
-                    ('be being done', 'ind. (present)'):2.5,
-                    ('do', 'ger.'):1,
-                    ('do', 'part. (past)'):2,
-                    ('be done', 'ger.'):2.5,
-                    ('be doing', 'inf.'):3,
-                    ('have done', 'inf.'):3,
-                    ('have been doing', 'ind. (past)'):3.5,
-                    ('have been done', 'ind. (past)'):3.5,
-                    ('be being done', 'ind. (past)'):3.5,
-                    ('have been done', 'inf.'):4,
-                    ('have done', 'ger.'):4,
-                    ('have been doing', 'inf.'):4.5,
-                    ('have been doing', 'ger.'):5,
-                    ('have been done', 'ger.'):5}
+            tenses = self.tense_level_dict
                 
             level = tenses.get((tense1,tense2),5)
 
@@ -1067,6 +1102,27 @@ class AdoTextAnalyzer(object):
                 level = 0
                 form = 'have got (POSSESS)'
             return level, form
+
+        def convert_tense_name(self,form,tense1,tense2):
+            name = self.tense_name_dict.get((tense1,tense2),"?")
+            if tense2 == 'inf.':
+                if form.startswith('will'):
+                    if ' ' in name:
+                        name = 'Future {} ({} with modal verb "will")'.format(' '.join(name.split(' ')[1:]),name)
+                    else:
+                        name = f'Future simple ({name} with modal verb "will")'
+                elif form.startswith('to '):
+                    name += ' with "to"'
+                elif any([form.startswith(m) for m in ['may','might','would','could','shall','can','should','must']]):
+                    name += ' with modal verb: {}'.format(form.split(' ')[0])
+                    #name += ' with modal verb'
+                elif len(form.split(' '))>=2:
+                    name += ' with auxilary verb'
+                else:
+                    name += ' without "to"'
+            elif form == 'have got (POSSESS)':
+                name = 'Possession with "have got"'
+            return name
 
         def get_subtree(self,members,new_members):
             if len(new_members) == 0:
@@ -1344,6 +1400,37 @@ class AdoTextAnalyzer(object):
             else:
                 return max(levels)
 
+        def get_tense_tips_data(self, tense_count, general_level):
+            grammar_count = {}
+            grammar_level = {}
+            infinitive_temp = {}
+            for v in tense_count.values():
+                for i in range(len(v['tense_term'])):
+                    name = v['tense_term'][i]
+                    if name.startswith('Infinitive') and 'with modal verb' in name:
+                        name_with_level = str(v['level'][i])+'_'+' '.join(name.split(' ')[:-1])
+                        if name_with_level in infinitive_temp:
+                            infinitive_temp[name_with_level].append(name.split(' ')[-1])
+                        else:
+                            infinitive_temp[name_with_level] = [name.split(' ')[-1]]
+                    else:
+                        if name in grammar_count:
+                            grammar_count[name] += v['size'][i]
+                        else:
+                            grammar_count[name] = v['size'][i]
+                        grammar_level[name] = v['level'][i]
+            for name_with_level,modal_verbs in infinitive_temp.items():
+                name = name_with_level.split('_')[-1] + ' {}'.format(', '.join(set(modal_verbs)))
+                grammar_level[name] = float(name_with_level.split('_')[0])
+                grammar_count[name] = len(modal_verbs)
+
+            df_grammar = pd.concat([pd.Series(grammar_level,name='level'),pd.Series(grammar_count,name='count')],axis=1)
+            df_grammar['level_diff'] = round(general_level-df_grammar['level'],1)
+            df_grammar['ratio'] = np.round(df_grammar['count']/sum(df_grammar['count']),2)
+            df_grammar['tense_term'] = df_grammar.index
+            return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
+            
+
         def process(self):
             dfs = {}
             rows = []
@@ -1409,6 +1496,7 @@ class AdoTextAnalyzer(object):
                         tense_span = None
                         tense1 = None
                         tense2 = None
+                        tense_term = None
                         try:
                             if x.pos_ in ['VERB','AUX']:
                                 form, tense_span = self.get_verb_form(x)
@@ -1418,6 +1506,7 @@ class AdoTextAnalyzer(object):
                             tense1, tense2 = self.classify_tense(form,x)
                             if tense1 is not None and tense2 is not None:
                                 tense_level, form = self.tense2level(form,tense1,tense2,x)
+                                tense_term = self.convert_tense_name(form,tense1,tense2)
                                 
                         clause_form, clause, clause_span, clause_level = self.get_clause(x)
                         if str(the_orth).lower() in stopwords.words('english'):
@@ -1466,7 +1555,7 @@ class AdoTextAnalyzer(object):
                                 level = max(2,self.predict_cefr(x.lemma_.lower(),x.pos_))
 
                         rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_.lower(),'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                    'form':form,'tense1':tense1,'tense2':tense2,'CEFR_tense':tense_level,'tense_span':tense_span,
+                                    'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
                                     'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span})
 
                 df_lemma =  pd.DataFrame(rows)
@@ -1527,22 +1616,62 @@ class AdoTextAnalyzer(object):
                     df = group[['lemma','pos']]
                     wordlists[CEFR] = df.groupby(df.columns.tolist(),as_index=False).size().sort_values(['size','lemma','pos'],ascending=[False,True,True]).to_dict(orient='list')
                 
-            if self.__settings['return_tense_count']:
+            if self.__settings['return_tense_count'] or self.__settings['return_tense_stats']:
                 tense_count = {}
                 for tense,group in df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense1'])].groupby(['tense1','tense2']):
-                    df = group[['form','tense1','tense2','CEFR_tense','tense_span','sentence_id']]
+                    df = group[['form','tense1','tense2','tense_term','CEFR_tense','tense_span','sentence_id']]
                     temp_dict = df.groupby(['form'],as_index=False).size().sort_values(['size'],ascending=[False]).to_dict(orient='list')
                     form_id = {x:i for i,x in enumerate(temp_dict['form'])}
+                    temp_dict['tense_term'] = [None]*len(form_id)
                     temp_dict['level'] = [None]*len(form_id)
                     temp_dict['span'] = [None]*len(form_id)
                     temp_dict['sentence_id'] = [None]*len(form_id)
                     for form, group in df.groupby('form',as_index=False):
+                        temp_dict['tense_term'][form_id[form]] = group.iloc[0]['tense_term']
                         temp_dict['level'][form_id[form]] = group['CEFR_tense'].values[0]
                         temp_dict['span'][form_id[form]] = group['tense_span'].tolist()
                         temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
                     tense_count['_'.join(tense)] = temp_dict
+
+            if self.__settings['return_tense_term_count'] or self.__settings['return_tense_stats']:
+                tense_term_count = {}
+
+                df_lemma_temp = df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense_term'])&~pd.isnull(df_lemma['tense1'])&~pd.isnull(df_lemma['tense2'])].copy().reset_index(drop=True)
                 
-            
+                '''
+                infinitive_temp = {}
+                infinitive_ids = {}
+                for i, row in df_lemma_temp.iterrows():
+                    name = row['tense_term']
+                    if name.startswith('Infinitive') and 'with modal verb' in name:
+                        name_with_level = str(row['CEFR_tense'])+'_'+' '.join(name.split(' ')[:-1])
+                        if name_with_level in infinitive_temp:
+                            infinitive_temp[name_with_level].append(name.split(' ')[-1])
+                            infinitive_ids[name_with_level].append(i)
+                        else:
+                            infinitive_temp[name_with_level] = [name.split(' ')[-1]]
+                            infinitive_ids[name_with_level] = [i]
+                for name_with_level,modal_verbs in infinitive_temp.items():
+                    name = name_with_level.split('_')[-1] + ' {}'.format(', '.join(set(modal_verbs)))
+                    for i in infinitive_ids[name_with_level]:
+                        df_lemma_temp.at[i,'tense_term'] = name
+                '''
+                
+                for term,group in df_lemma_temp.groupby('tense_term'):
+                    df = group[['form','tense1','tense2','tense_term','CEFR_tense','tense_span','sentence_id']]
+                    temp_dict = df.groupby(['form'],as_index=False).size().sort_values(['size'],ascending=[False]).to_dict(orient='list')
+                    form_id = {x:i for i,x in enumerate(temp_dict['form'])}
+                    temp_dict['tense'] = [None]*len(form_id)
+                    temp_dict['level'] = [None]*len(form_id)
+                    temp_dict['span'] = [None]*len(form_id)
+                    temp_dict['sentence_id'] = [None]*len(form_id)
+                    for form, group in df.groupby('form',as_index=False):
+                        temp_dict['tense'][form_id[form]] = group['tense1'].values[0]+'_'+group['tense2'].values[0]
+                        temp_dict['level'][form_id[form]] = group['CEFR_tense'].values[0]
+                        temp_dict['span'][form_id[form]] = group['tense_span'].tolist()
+                        temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
+                    tense_term_count[term] = temp_dict
+
             sum_tense, cumsum_tense = self.count_tense(df_lemma)
             tense_stats = {'sum_token':{'values':list(sum_tense.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_tense.values,4))}}
             a,b,c,d = self.fit_sigmoid(cumsum_tense.values[:-1],np.arange(0,5,0.5))
@@ -1593,7 +1722,7 @@ class AdoTextAnalyzer(object):
                                         'ninety_five':[self.ninety_five(cumsum_series_token)],
                                         'fit_error':[self.fit_error(stats_dict[k]['values'][2:-1],range(1,6),a,b,c,d)]}
             
-            if self.__settings['return_final_levels']:
+            if self.__settings['return_final_levels'] or self.__settings['return_tense_stats']:
                 if tense_stats["level"]["fit_error"][0]>=0.05:
                     tense_level = tense_stats["level"]["ninety_five"][0]
                 else:
@@ -1622,7 +1751,18 @@ class AdoTextAnalyzer(object):
             if self.__settings['return_tense_count']:
                 result_dict['tense_count'] = tense_count
                 #self.tense_count = tense_count
+            if self.__settings['return_tense_term_count']:
+                result_dict['tense_term_count'] = tense_term_count
             if self.__settings['return_tense_stats']:
+                df_tense_stats = pd.DataFrame([{'tense':tense,'level':d['level'][0],'count':sum(d['size'])} for tense, d in tense_count.items()])
+                df_tense_stats['ratio'] = np.round(df_tense_stats['count']/sum(df_tense_stats['count']),2)
+                tense_stats['tense_summary'] = df_tense_stats.sort_values('count',ascending=False).to_dict('list')
+
+                df_tense_term_stats = pd.DataFrame([{'tense_term':term,'level':d['level'][0],'count':sum(d['size'])} for term, d in tense_term_count.items()])
+                df_tense_term_stats['level_diff'] = np.round(general_level-df_tense_term_stats['level'],1)
+                df_tense_term_stats['ratio'] = np.round(df_tense_term_stats['count']/sum(df_tense_term_stats['count']),2)
+                tense_stats['tense_term_summary'] = df_tense_term_stats.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
+                
                 result_dict['tense_stats'] = tense_stats
                 #self.tense_stats = tense_stats
             if self.__settings['return_clause_count']:
@@ -1712,7 +1852,7 @@ class AdoTextAnalyzer(object):
 
         def start_analyze(self, propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                         return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                        return_tense_count=True,return_tense_stats=True,return_clause_count=True,
+                        return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                         return_clause_stats=True,return_final_levels=True):
             self.__settings['propn_as_lowest']=propn_as_lowest
             self.__settings['intj_as_lowest']=intj_as_lowest
@@ -1721,6 +1861,7 @@ class AdoTextAnalyzer(object):
             self.__settings['return_wordlists']=return_wordlists
             self.__settings['return_vocabulary_stats']=return_vocabulary_stats
             self.__settings['return_tense_count']=return_tense_count
+            self.__settings['return_tense_term_count']=return_tense_term_count
             self.__settings['return_tense_stats']=return_tense_stats
             self.__settings['return_clause_count']=return_clause_count
             self.__settings['return_clause_stats']=return_clause_stats
