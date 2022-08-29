@@ -1,27 +1,45 @@
 A collection of computational linguistic functions ranging from finding degree of decodebility to cross sentence similarity.
 
 # Changelog
+### Version 1.5.9
+###### 29 August 2022
+
+##### CefrAnalyzer.classify_tense
++ [Fix] Infinitives in compound sentences now won’t be recognised as imperatives mistakenly.
+
+##### ReadabilityAnalyzer.start_analyze
++ [Feature] Added readability_consensus
+
+### Version 1.5.8
+###### 12 August 2022
+
+##### CefrAnalyzer.classify_tense
++ [Enhancement] Imperatives will now be recognised.
++ [Fix] "verb+doing" won't be recognised as "be doing"+"inf." tense anymore.
+
+##### CefrAnalyzer.get_aux
++ [Fix] "to" in the infinitives' form is now always preserved.
+
+##### CefrAnalyzer.get_verb_form
++ [Fix] Non-aux "have" now has "do" as form
+
 ### Version 1.5.7
 ###### 10 August 2022
 
-##### CefrAnalyzerv.get_clause
+##### CefrAnalyzer.get_clause
 + [Fix] Noun clauses as subjects are now properly recognised (which was affected by the changes in version 1.5.3).
 
 ### Version 1.5.6
 ###### 09 August 2022
++ [Fix] Recognition of compound sentences will now exclude clauses without a subject properly.
 
 ##### CefrAnalyzer.process
 + [Change] Level by length formula: ($$1.1^{length}-1$$) → ($$1.1^{length}-1.5$$), which is now capped at 7.
 + [Change] Final sentence CEFR level: the higher one of the level by length and the level by vocabulary → the average between the two.
 + [Change] CEFR clause of text is now taken at the 90th percentile of all sentences instead of the 80th.
 
-##### CefrAnalyzerv.get_clause
-+ [Fix] Recognition of compound sentences will now exclude clauses without a subject properly.
-
 ### Version 1.5.5
 ###### 03 August 2022
-
-##### CefrAnalyzer.process
 + [Enhancement] Clause level is now rounded to one decimal place.
 + [Fix] CEFR word count will now exclude SPACE.
 
