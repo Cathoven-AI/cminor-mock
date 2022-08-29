@@ -16,7 +16,7 @@ with open('requirements.txt', 'r') as f:
 
 setup(
     name='solar',
-    version='1.5.8',
+    version='1.5.9',
     description='SOLAR: System of LAnguage Retention',
     long_description=long_description,
     long_description_content_type='text/markdown',

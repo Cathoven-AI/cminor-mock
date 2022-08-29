@@ -1938,7 +1938,7 @@ class AdoTextAnalyzer(object):
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
             else:
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'flesch_kincaid_grade':textstat.flesch_kincaid_grade(text),
                         'gunning_fog':textstat.gunning_fog(text),
                         'smog_index':textstat.smog_index(text),
@@ -1952,6 +1952,8 @@ class AdoTextAnalyzer(object):
                         #'reading_time':textstat.reading_time(text, ms_per_char=14.69),
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
+                result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
+                self.result = result
 
 # CEFR files
 cefr_w_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_min_prim.pkl'),'rb'))
