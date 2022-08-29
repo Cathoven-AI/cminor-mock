@@ -1011,7 +1011,10 @@ class AdoTextAnalyzer(object):
             elif sum([form.startswith(y) for y in ['do ','does','has','have','am','is','are','gets']])>0:
                 tense2 = 'ind. (present)'
             elif form=='do':
-                if all([child.dep_!='nsubj' for child in x.children if child.i<x.i]) and str(x.morph) == 'VerbForm=Inf':
+                first = x
+                while first.dep_ == 'conj':
+                    first = first.head
+                if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf':
                     tense2 = 'imp.'
                 elif "VerbForm=Fin" in str(x.morph):
                     tense2 = 'ind. (present)'
