@@ -1072,7 +1072,7 @@ class AdoTextAnalyzer(object):
                         tense1 = 'do'
                     elif form.startswith('having'):
                         tense1 = 'have '+' '.join(form.split(' ')[1:])
-                    elif form.startswith('be '):
+                    elif form.startswith('be ') or form.startswith('am ') or form.startswith('is ') or form.startswith('are ') or form.startswith('was ') or form.startswith('were ') or form.startswith("ain't "):
                         tense1 = 'be doing'
                 
             elif form == 'being':
