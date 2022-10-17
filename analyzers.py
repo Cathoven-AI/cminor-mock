@@ -7,7 +7,7 @@ import pandas as pd
 from . import spacy
 from . import word as solar_word
 from . import modify_text
-import pickle, re, tensorflow, textstat
+import pickle, re, tensorflow, textstat, warnings
 from textacy import text_stats
 import Levenshtein as lev
 from lexical_diversity import lex_div as ld
@@ -179,18 +179,20 @@ class AdoTextAnalyzer(object):
             h_csum = np.cumsum(h)
             h_csum_norm = h_csum / h_csum.max()
 
-            est_x = np.mean(data_hist)
+            est_x = np.nanmean(data_hist)
 
             init_vals = [1,est_x,0]
             best_vals, covar = curve_fit(self.rasch_func, data_hist[0:-1], h_csum_norm, p0=init_vals)
 
             ability = {}
             
-            for ab_at in ab_at_arr:
-                vals = list(best_vals)
-                vals.append(ab_at)
-                the_ab = fsolve(self.rasch_func_solve, [est_x], vals)
-                ability[ab_at] = the_ab[0]
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'The iteration is not making good progress')
+                for ab_at in ab_at_arr:
+                    vals = list(best_vals)
+                    vals.append(ab_at)
+                    the_ab = fsolve(self.rasch_func_solve, [est_x], vals)
+                    ability[ab_at] = the_ab[0]
 
             return ability
 
@@ -480,7 +482,7 @@ class AdoTextAnalyzer(object):
                         if len(lcs3_list) == 0:
                             lcs3_list = [0]
                         
-                        summary = pd.Series({'mean_length':np.mean(sent_length_list),
+                        summary = pd.Series({'mean_length':np.nanmean(sent_length_list),
                                             'mean_log_freq_type':mean_log_freq_type,
                                             'mean_log_freq_type_no_stop':mean_log_freq_type_no_stop,
                                             'mean_log_freq_token':mean_log_freq_token,
@@ -488,9 +490,9 @@ class AdoTextAnalyzer(object):
                                             'maas_ttr':maas_ttr,
                                             'hdd':hdd,
                                             'mtld':mtld,
-                                            'mean_lev_distance':np.mean(lev_distance_list),
-                                            'mean_lcs2':np.mean(lcs2_list),
-                                            'mean_lcs3':np.mean(lcs3_list),
+                                            'mean_lev_distance':np.nanmean(lev_distance_list),
+                                            'mean_lcs2':np.nanmean(lcs2_list),
+                                            'mean_lcs3':np.nanmean(lcs3_list),
                                             'noncompressibility':noncompressibility})
                         summary.name = 'counts'
 
@@ -546,12 +548,14 @@ class AdoTextAnalyzer(object):
                         density_list.append(np.nan)
                 
         #     print(sent_length_list2)
-            summary = pd.concat([pd.Series({'std_length':np.std(sent_length_list2),
-                                            'high_mean_length': self.high_avg(sent_length_list2),
-                                            'mean_depth':np.mean(sent_depth_list),
-                                            'std_depth':np.std(sent_depth_list),
-                                            'density':np.mean(density_list)}),
-                                sum(summaries)/len(summaries)]).sort_index()
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                summary = pd.concat([pd.Series({'std_length':np.std(sent_length_list2),
+                                                'high_mean_length': self.high_avg(sent_length_list2),
+                                                'mean_depth':np.nanmean(sent_depth_list),
+                                                'std_depth':np.std(sent_depth_list),
+                                                'density':np.nanmean(density_list)}),
+                                    sum(summaries)/len(summaries)]).sort_index()
             
             
             #summary['n_sents'] = len(list(doc.sents))
@@ -561,15 +565,15 @@ class AdoTextAnalyzer(object):
             df_data2['original'] = df_data2['original'].apply(lambda x: x.lower())
             
             nsyl_clean_list = df_data2[df_data2['nsyl'] != 0].drop_duplicates('original')['nsyl'].tolist()
-            summary['nsyl_mean'] = np.mean(nsyl_clean_list)
+            summary['nsyl_mean'] = np.nanmean(nsyl_clean_list)
             
             # High mean of the syllable count
             summary['nsyl_high_mean'] = self.high_avg(nsyl_clean_list)
             
             
             # Decoding Demand
-            summary['decode_lemma'] = np.mean(df_data[df_data['decode_lemma'] != 0]['decode_lemma'].tolist())
-            summary['decode_original'] = np.mean(df_data[df_data['decode_original'] != 0]['decode_original'].tolist())
+            summary['decode_lemma'] = np.nanmean(df_data[df_data['decode_lemma'] != 0]['decode_lemma'].tolist())
+            summary['decode_original'] = np.nanmean(df_data[df_data['decode_original'] != 0]['decode_original'].tolist())
             
             
             abstract_score_list = df_data[df_data['abstract'] != 0].drop_duplicates('lemma')['abstract'].tolist()
@@ -578,7 +582,7 @@ class AdoTextAnalyzer(object):
                 summary['abstract_mean'] = 0
                 summary['abstract_high_mean'] = 0
             else:
-                summary['abstract_mean'] = np.mean(abstract_score_list)
+                summary['abstract_mean'] = np.nanmean(abstract_score_list)
                 summary['abstract_high_mean'] = self.high_avg(abstract_score_list)
         #     n_bins = len(abst_score_list) * 2
         #     abst_ability = get_ability_2(abst_score_list, ability_at, n_bins=n_bins)
@@ -600,7 +604,7 @@ class AdoTextAnalyzer(object):
                 for a in ability_at:
                     summary['aoa_' + str(int(a*100))] = 0
             else:
-                summary['aoa_mean'] = np.mean(aoa_clean_list)
+                summary['aoa_mean'] = np.nanmean(aoa_clean_list)
                 summary['aoa_high_mean'] = self.high_avg(aoa_clean_list)
                 
                 try:
@@ -629,7 +633,7 @@ class AdoTextAnalyzer(object):
                 for a in ability_at:
                     summary['freq_' + str(int(a*100))] = 0.5
             else:
-                summary['freq_mean'] = np.mean(rareness_clean_list)
+                summary['freq_mean'] = np.nanmean(rareness_clean_list)
                 summary['freq_high_mean'] = self.high_avg(rareness_clean_list)
 
                 try:
@@ -1011,7 +1015,10 @@ class AdoTextAnalyzer(object):
             elif sum([form.startswith(y) for y in ['do ','does','has','have','am','is','are','gets']])>0:
                 tense2 = 'ind. (present)'
             elif form=='do':
-                if all([child.dep_!='nsubj' for child in x.children if child.i<x.i]) and str(x.morph) == 'VerbForm=Inf':
+                first = x
+                while first.dep_ == 'conj':
+                    first = first.head
+                if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf':
                     tense2 = 'imp.'
                 elif "VerbForm=Fin" in str(x.morph):
                     tense2 = 'ind. (present)'
@@ -1065,7 +1072,7 @@ class AdoTextAnalyzer(object):
                         tense1 = 'do'
                     elif form.startswith('having'):
                         tense1 = 'have '+' '.join(form.split(' ')[1:])
-                    elif form.startswith('be '):
+                    elif form.startswith('be ') or form.startswith('am ') or form.startswith('is ') or form.startswith('are ') or form.startswith('was ') or form.startswith('were ') or form.startswith("ain't "):
                         tense1 = 'be doing'
                 
             elif form == 'being':
@@ -1577,7 +1584,7 @@ class AdoTextAnalyzer(object):
                 total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
                 level_by_clause = max(max(df['CEFR_clause'].fillna(0)),sum(df['CEFR_clause'].fillna(0).values*df['clause_span'].fillna('').apply(len).values)/total_span)
                 level_by_length = min(max(0,1.1**len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])-1.5),7)
-                clause_level = min(np.mean([level_by_length,level_by_clause]),6)
+                clause_level = min(np.nanmean([level_by_length,level_by_clause]),6)
                 clause_levels.append(clause_level)
 
                 if self.__settings['return_sentences']:
@@ -1816,7 +1823,7 @@ class AdoTextAnalyzer(object):
 
         def fit_error(self,cumsum_series_values,levels,a,b,c,d):
             pred = np.maximum(0,self.level2percentile(levels,a,b,c,d))
-            return np.sqrt(np.mean((cumsum_series_values-pred)**2))
+            return np.sqrt(np.nanmean((cumsum_series_values-pred)**2))
 
         def percentile2level(self,x,a,b,c,d):
             return a/(-b+np.exp(-x*c+d))
@@ -1935,7 +1942,7 @@ class AdoTextAnalyzer(object):
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
             else:
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'flesch_kincaid_grade':textstat.flesch_kincaid_grade(text),
                         'gunning_fog':textstat.gunning_fog(text),
                         'smog_index':textstat.smog_index(text),
@@ -1949,6 +1956,8 @@ class AdoTextAnalyzer(object):
                         #'reading_time':textstat.reading_time(text, ms_per_char=14.69),
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
+                result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
+                self.result = result
 
 # CEFR files
 cefr_w_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_min_prim.pkl'),'rb'))
