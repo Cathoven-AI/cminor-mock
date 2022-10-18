@@ -827,19 +827,7 @@ class AdoTextAnalyzer(object):
         def get_verb_form(self,x):
             tense = []
             id_range = []
-            #proceed = False
-            #confident = True
-            #if sum([child.lemma_ == 'to' for child in x.children if child.i<x.i])==0:
-            #if x.head == x or x.dep_ == 'ROOT':
-            #    proceed = True
-            #elif x.pos_ != 'AUX':
-            #    if sum([child.pos_ == 'AUX' for child in x.children if child.i<x.i])>0 or x.tag_ != x.head.tag_:
-            #        proceed = True
-            #    else:
-                    
-                    #x = x.head
-            #        confident = False
-            #        proceed = True
+
             if x.orth_.lower() == 'being' and str(x.morph)=='VerbForm=Ger' and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_!='VERB':
                 tense.append('being')
             elif x.head == x or x.dep_ == 'ROOT' or x.dep_ != 'aux':
@@ -849,19 +837,6 @@ class AdoTextAnalyzer(object):
                     while first_verb.dep_=='conj':
                         first_verb = first_verb.head
                     tense, id_range = self.get_aux(first_verb)
-                '''
-                if x.tag_ in ['VBZ','VBP','VB']: #do/does
-                    tense.append('do')
-                elif x.tag_ == 'VBD': #did
-                    tense.append('did')
-                elif len(tense) > 0:
-                    if x.tag_ == 'VBG': #doing
-                        tense.append('doing')
-                    elif x.tag_ == 'VBN': #done
-                        tense.append('done')
-                    if confident == False:
-                        tense = ['*']+tense
-                '''
 
                 if 'Aspect=Perf' in x.morph or (self.shared_object.doc[max(0,x.i-1)].lemma_=='have' and self.shared_object.doc[max(0,x.i-1)].pos_=='AUX' or self.shared_object.doc[max(0,x.i-2)].lemma_ == 'have' and self.shared_object.doc[max(0,x.i-2)].pos_=='AUX') and 'VerbForm=Fin' in x.morph and 'Tense=Past' in x.morph:
                     tense.append('done')
@@ -932,26 +907,6 @@ class AdoTextAnalyzer(object):
                     tense = ' '.join(tense.split(' ')[:-1]+['done'])
                 elif tense == 'has doing':
                     tense = 'is doing'
-                '''
-                if len(id_range)>0:
-                    length = x.i-min(id_range)+1
-                    sent = ''
-                    for y in x.sent:
-                        if y.i==min(id_range):
-                            sent += "<color=#3EF2A7>"+y.orth_+y.whitespace_
-                        elif y.i == x.i:
-                            sent += y.orth_+"</color>"+y.whitespace_
-                        else:
-                            sent += y.orth_+y.whitespace_
-                else:
-                    sent = ''
-                    for y in x.sent:
-                        if y.i==x.i:
-                            sent += "<color=#3EF2A7>"+y.orth_+"</color>"+y.whitespace_
-
-                        else:
-                            sent += y.orth_+y.whitespace_
-                '''
                 id_range.append(x.i)
                 return tense, list(set(id_range))
 
@@ -1020,7 +975,7 @@ class AdoTextAnalyzer(object):
                     first = first.head
                 if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf':
                     tense2 = 'imp.'
-                elif "VerbForm=Fin" in str(x.morph):
+                elif "VerbForm=Fin" in str(x.morph) and first.head.lemma_!='let':
                     tense2 = 'ind. (present)'
                 else:
                     tense2 = 'inf.'
@@ -1229,16 +1184,14 @@ class AdoTextAnalyzer(object):
                         clause_form = None
                     elif x.tag_=='VB' and all(self.shared_object.doc[i].pos_!='AUX' for i in range(*sorted([first.head.i,first.i]))):
                         clause_form = None
-                    elif first.head.i<x.i:
+                    elif first.head.lemma_!='let' and first.head.i<x.i:
                         clause_form = '(that)'
                 if clause_form is not None and not (all(self.shared_object.doc[y].lemma_!=')' for y in range(*sorted([first.head.i,first.i]))) or any(self.shared_object.doc[y].lemma_=='(' for y in range(*sorted([first.head.i,first.i])))):
                     clause_form = None
-                    
                 last_i = sorted(set(subtree))[-1]
                 if first.dep_ == 'ccomp' and (self.shared_object.doc[min(last_i+1,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+2,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+3,len(self.shared_object.doc)-1)].lemma_=='so'):
                     clause_form = None
                     subtree = None
-                    
             elif first.dep_=='pcomp' and x.pos_ in ['VERB','AUX']:
                 for child in x.children:
                     if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
