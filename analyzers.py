@@ -1719,7 +1719,6 @@ class AdoTextAnalyzer(object):
                     tense_stats['tense_summary'] = df_tense_stats.sort_values('count',ascending=False).to_dict('list')
                 else:
                     tense_stats['tense_summary'] = {}
-
                 if len(tense_term_count)>0:
                     df_tense_term_stats = pd.DataFrame([{'tense_term':term,'level':d['level'][0],'count':sum(d['size'])} for term, d in tense_term_count.items()])
                     df_tense_term_stats['level_diff'] = np.round(general_level-df_tense_term_stats['level'],1)
