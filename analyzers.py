@@ -830,7 +830,7 @@ class AdoTextAnalyzer(object):
 
             if x.orth_.lower() == 'being' and str(x.morph)=='VerbForm=Ger' and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_!='VERB':
                 tense.append('being')
-            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ != 'aux':
+            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ not in ['aux','auxpass']:
                 tense, id_range = self.get_aux(x)
                 if len(tense) == 0 and x.dep_=='conj':
                     first_verb = x.head
@@ -864,7 +864,6 @@ class AdoTextAnalyzer(object):
                 elif 'VerbForm=Inf' in x.morph:
                     tense.append('do')
                 
-
             if len(tense)==0:
                 return None, None
             else:
@@ -893,7 +892,8 @@ class AdoTextAnalyzer(object):
                     tense = tense.replace('ai',"ain't")
                     
                 tense = tense.replace('ca ','can ').replace('wo ','will ').replace('sha ','shall ').replace('ai ',"ain't ")
-                    
+                
+                # Fix some form errors with "have"
                 if tense in ['has','have','had'] and (
                     (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']) or (
                         x.pos_!='AUX' and any([child.dep_=='dobj' for child in x.children if x.i<child.i]))):
@@ -958,7 +958,6 @@ class AdoTextAnalyzer(object):
             
             #if x.head.pos_=='ADP' and all([y.pos_ in ['ADV','ADP','VERB','AUX','PART'] for y in doc[x.head.i:x.i]]):
             #    form = ' '.join(form.split(' ')[1:])
-                
             if form.startswith("ain't"):
                 tense2 = 'contextual'
             elif form == 'had better do':
@@ -1714,15 +1713,19 @@ class AdoTextAnalyzer(object):
             if self.__settings['return_tense_term_count']:
                 result_dict['tense_term_count'] = tense_term_count
             if self.__settings['return_tense_stats']:
-                df_tense_stats = pd.DataFrame([{'tense':tense,'level':d['level'][0],'count':sum(d['size'])} for tense, d in tense_count.items()])
-                df_tense_stats['ratio'] = np.round(df_tense_stats['count']/sum(df_tense_stats['count']),2)
-                tense_stats['tense_summary'] = df_tense_stats.sort_values('count',ascending=False).to_dict('list')
-
-                df_tense_term_stats = pd.DataFrame([{'tense_term':term,'level':d['level'][0],'count':sum(d['size'])} for term, d in tense_term_count.items()])
-                df_tense_term_stats['level_diff'] = np.round(general_level-df_tense_term_stats['level'],1)
-                df_tense_term_stats['ratio'] = np.round(df_tense_term_stats['count']/sum(df_tense_term_stats['count']),2)
-                tense_stats['tense_term_summary'] = df_tense_term_stats.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
-                
+                if len(tense_count)>0:
+                    df_tense_stats = pd.DataFrame([{'tense':tense,'level':d['level'][0],'count':sum(d['size'])} for tense, d in tense_count.items()])
+                    df_tense_stats['ratio'] = np.round(df_tense_stats['count']/sum(df_tense_stats['count']),2)
+                    tense_stats['tense_summary'] = df_tense_stats.sort_values('count',ascending=False).to_dict('list')
+                else:
+                    tense_stats['tense_summary'] = {}
+                if len(tense_term_count)>0:
+                    df_tense_term_stats = pd.DataFrame([{'tense_term':term,'level':d['level'][0],'count':sum(d['size'])} for term, d in tense_term_count.items()])
+                    df_tense_term_stats['level_diff'] = np.round(general_level-df_tense_term_stats['level'],1)
+                    df_tense_term_stats['ratio'] = np.round(df_tense_term_stats['count']/sum(df_tense_term_stats['count']),2)
+                    tense_stats['tense_term_summary'] = df_tense_term_stats.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
+                else:
+                    tense_stats['tense_term_summary'] = {}
                 result_dict['tense_stats'] = tense_stats
                 #self.tense_stats = tense_stats
             if self.__settings['return_clause_count']:
