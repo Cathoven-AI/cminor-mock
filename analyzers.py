@@ -1925,8 +1925,16 @@ cefr_w_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cef
 cefr_wo_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos.pkl'),'rb'))
 cefr_w_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_sup.pkl'),'rb'))
 cefr_wo_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_sup.pkl'),'rb'))
+
 df_reference_words = pd.concat([pd.DataFrame(pd.Series(cefr_w_pos_min_prim)).reset_index(),pd.DataFrame(pd.Series(cefr_w_pos)).reset_index()]).drop_duplicates(['level_0','level_1'])
+df_temp = df_reference_words[df_reference_words['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
+df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
+df_reference_words = pd.concat([df_reference_words,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
+
 df_reference_words_sup = pd.DataFrame(pd.Series(cefr_w_pos_sup)).reset_index()
+df_temp = df_reference_words_sup[df_reference_words_sup['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
+df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
+df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
 
 cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
 
@@ -1998,7 +2006,7 @@ df_abstract = df_abstract[~df_abstract.word.isin(most_freq_50)]
 abstract_words = df_abstract['word'].to_list()
 abstract = list(700 - df_abstract['img'].values)
 
-del br2am, df_corpus, df_aoa, df_mrc, df_abstract
+del br2am, df_corpus, df_aoa, df_mrc, df_abstract, df_temp
 
 
 nlp = spacy.load('en_core_web_trf')
