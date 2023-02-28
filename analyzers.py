@@ -7,8 +7,10 @@ import pandas as pd
 from . import spacy
 from . import word as solar_word
 from . import modify_text
+from edit_distance_modified import edit_distance
 import pickle, re, tensorflow, textstat, warnings
 from textacy import text_stats
+from collections import Counter
 import Levenshtein as lev
 from lexical_diversity import lex_div as ld
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -31,7 +33,7 @@ class AdoTextAnalyzer(object):
     def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_final_levels=True,return_result=False):
+                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False):
         text = text.strip()
         if text!=self.text:
             self.doc = None
@@ -43,7 +45,7 @@ class AdoTextAnalyzer(object):
         temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
                         'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
                         'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
-                        'return_clause_stats':return_clause_stats,'return_final_levels':return_final_levels}
+                        'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels}
 
         if self.cefr is None or temp_settings!=self.cefr.print_settings():
             if self.doc is None:
@@ -52,7 +54,7 @@ class AdoTextAnalyzer(object):
             self.cefr.start_analyze(propn_as_lowest,intj_as_lowest,keep_min,
                         return_sentences, return_wordlists,return_vocabulary_stats,
                         return_tense_count,return_tense_term_count,return_tense_stats,return_clause_count,
-                        return_clause_stats,return_final_levels)
+                        return_clause_stats,return_phrase_count,return_final_levels)
         if return_result:
             return self.cefr.result
 
@@ -403,7 +405,7 @@ class AdoTextAnalyzer(object):
                         n_sents += 1
                     sent_index_list.append(n_sents-1)
                     
-                    if x.dep_ == 'ROOT' and x.pos_ not in ['SPACE','PUNCT','X']:
+                    if x.dep_ == 'ROOT' and x.pos_ not in set(['SPACE','PUNCT','X']):
                         if len(x.sent.text.strip(' ').strip('\n'))>1:
                             sent_list.append(x.sent.text.lower().strip(' ').strip('\n'))
                         sent_depth_list.append(self.walk_tree(x.sent.root, 0))
@@ -754,7 +756,7 @@ class AdoTextAnalyzer(object):
             self.__settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,
                     'return_sentences':True, 'return_wordlists':True,'return_vocabulary_stats':True,
                     'return_tense_count':True,'return_tense_term_count':True,'return_tense_stats':True,'return_clause_count':True,
-                    'return_clause_stats':True,'return_final_levels':True}
+                    'return_clause_stats':True,'return_phrase_count':True,'return_final_levels':True}
 
             self.tense_level_dict = {('unbound modal verbs', 'fin.'):0,
                     ('do', 'inf.'):0,
@@ -824,13 +826,181 @@ class AdoTextAnalyzer(object):
             #self.final_levels = None
             self.result = None
 
+        def get_phrase(self, phrase, phrase_pos, sentence, sentence_start_index, followed_by, window_size=3):
+            
+            confidence = length = len(phrase)
+            
+            sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
+            opcodes = sm.get_opcodes()
+
+            filter_ = []
+            for opcode in opcodes:
+                if opcode[0] == 'replace':
+                    if not (phrase_pos[opcode[1]]==self.shared_object.doc[opcode[3]+sentence_start_index].pos_ and phrase_pos[opcode[1]] in set(['PRON','DET'])):
+                        return None, 0
+                    else:
+                        filter_.append(True)
+                    if any([x.endswith('self') or x.endswith('selves') for x in phrase[opcode[1]]]) and any([x.endswith('self') or x.endswith('selves') for x in set(sentence[opcode[3]])]):
+                        confidence += 0.5
+                    confidence -= 1
+                elif opcode[0] == 'equal':
+                    filter_.append(True)
+                    pos_original = phrase_pos[opcode[1]]
+                    pos_in_sent = self.shared_object.doc[opcode[3]+sentence_start_index].pos_
+                    if pos_original!=pos_in_sent and not (pos_original=='ADP' and pos_in_sent=='ADV' or pos_original=='ADV' and pos_in_sent=='ADP' or pos_original=="PROPN" or pos_in_sent=="PROPN"):
+                        confidence -= 1
+                    if pos_original==pos_in_sent=="VERB" and len(set(sentence[opcode[3]])-set(phrase[opcode[1]]))>0:
+                        if opcode[1]==0 and len(set(phrase[opcode[1]]))-len(set(sentence[opcode[3]]))>0 or opcode[1]>=1 and opcode[3]>1 and 'be' in phrase[opcode[1]-1]+sentence[opcode[3]-1]:
+                            confidence -= 1
+                else:
+                    filter_.append(False)
+
+            matching_blocks = np.array(opcodes)[filter_][:,[1,3]].astype(int)
+            
+            operations = np.array(opcodes).T[0]
+            operations_count = Counter(operations)
+            if ['outa'] in phrase:
+                print(opcodes)
+            if operations_count['equal']+operations_count['replace']!=length or operations_count['equal']<=length/2 or 'delete' in operations_count:
+                return None, 0
+
+            # 1: only one
+            # 2: , or none
+            # 3: something noun-like
+            # 4: something not VERB
+            for i in range(1,len(matching_blocks)):
+                n_insertions = matching_blocks[i][1]-matching_blocks[i-1][1]-1
+                if followed_by[i-1]=="0":
+                    if opcodes[matching_blocks[i][1]-1][0] not in set(['equal','replace']):
+                        return None, 0
+                elif followed_by[i-1]=="1":
+                    if n_insertions!=1:
+                        confidence -= abs(1-n_insertions)
+                elif followed_by[i-1]==",":
+                    if n_insertions>1:
+                        confidence -= abs(1-n_insertions)
+                    elif n_insertions==1 and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].pos_ != 'PUNCT':
+                        return None, 0
+                elif followed_by[i-1] in set(['p','t']):
+                    person = False
+                    thing = True
+                    for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                        if x.pos_=="PRON":
+                            if x.orth_.lower() == 'them':
+                                person = True
+                                break
+                            elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
+                                thing = False
+                                person = True
+                                break
+                        elif x.pos_=='NOUN':
+                            if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
+                                thing = False
+                                person = True
+                                break
+                        elif x.head.pos_=='NOUN' and matching_blocks[i-1][1]+sentence_start_index+1<x.head.i<matching_blocks[i][1]+sentence_start_index:
+                            if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
+                                thing = False
+                                person = True
+                                break
+                    if followed_by[i-1]=='p' and not person:
+                        confidence -= 1
+                    elif followed_by[i-1]=='t' and not thing:
+                        confidence -= 0.5
+                elif followed_by[i-1]=="a":
+                    if any([x.pos_ in set(['VERB','AUX']) for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]]):
+                        return None, 0
+                    if n_insertions==0:
+                        confidence -= 1
+                    elif n_insertions==1 and self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ == 'DET':
+                        return None, 0
+                elif followed_by[i-1]=="s":
+                    is_possessive = False
+                    for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                        if x.pos_ in set(['VERB','AUX']):
+                            return None, 0
+                        elif x.lemma_ in set(["'s", "'", "my", "your", "his", "her", "our", "their"]):
+                            is_possessive = True
+                            break
+                    if not is_possessive:
+                        confidence -= 1
+                elif followed_by[i-1]=="n":
+                    if self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ != 'NUM':
+                        confidence -= 1
+
+                if n_insertions==0 and followed_by[i-1] in set(['a','p','t']) and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].tag_!='VBN':
+                    confidence -= 1
+                if n_insertions>window_size:
+                    confidence -= n_insertions-window_size
+
+            if confidence<=0:
+                return None, 0
+
+            span = list(np.array(matching_blocks)[:,1])
+
+            phrase_start_index = span[0]+sentence_start_index
+            phrase_end_index = span[-1]+sentence_start_index
+            followed_by_something = phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i and self.shared_object.doc[phrase_end_index+1].lemma_.isalnum() and self.shared_object.doc[phrase_end_index+1].pos_!='CONJ'
+            if followed_by[-1]=='0':
+                if followed_by_something:
+                    confidence -= 1
+            else:
+                if not followed_by_something and self.shared_object.doc[phrase_start_index].tag_!='VBN':
+                    confidence -= 1
+                if followed_by[-1] in set(['p','t']):
+                    followed_by_person = False
+                    followed_by_thing = True
+                    if phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i:
+                        x = self.shared_object.doc[phrase_end_index+1]
+                        if x.pos_=="PRON":
+                            if x.orth_.lower()=='them':
+                                followed_by_person = True
+                            elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
+                                followed_by_thing = False
+                                followed_by_person = True
+                        elif x.pos_=='NOUN':
+                            if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
+                                followed_by_thing = False
+                                followed_by_person = True
+                        elif x.head.pos_=='NOUN' and phrase_end_index<x.head.i:
+                            if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
+                                followed_by_thing = False
+                                followed_by_person = True
+                    if followed_by[-1]=='p' and not followed_by_person:
+                        confidence -= 1
+                    elif followed_by[-1]=='t' and not followed_by_thing:
+                        confidence -= 0.5
+                elif followed_by[-1]=='n':
+                    if phrase_end_index<len(self.shared_object.doc)-1 and self.shared_object.doc[phrase_end_index+1].pos_!='NUM':
+                        confidence -= 1
+
+            if confidence<=0:
+                return None, 0
+
+            return span, confidence/len(phrase)
+
+        def get_sentence_parts(self, x, followed_by, window_size=3):
+            followed_by = followed_by.split('_')[0]
+            phrase_length = len(followed_by)+1+followed_by.count('1')+followed_by.count('2')+(followed_by.count('3')+followed_by.count('4'))*window_size
+            sentence_parts = []
+            start_index = max(x.sent[0].i, x.i-phrase_length)
+            end_index = min(x.i+phrase_length, x.sent[-1].i)
+            for i in range(start_index,end_index+1):
+                if self.shared_object.doc[i].lemma_=='not':
+                    sentence_parts.append(['not','never','hardly','barely'])
+                elif (self.shared_object.doc[i].lemma_.endswith('self') or self.shared_object.doc[i].lemma_.endswith('selves')) and self.shared_object.doc[i].lemma_!='self':
+                    sentence_parts.append([self.shared_object.doc[i].lemma_, self.shared_object.doc[i].orth_.lower(), 'oneself'])
+                else:
+                    sentence_parts.append([self.shared_object.doc[i].lemma_, self.shared_object.doc[i].orth_.lower()])
+            return sentence_parts, start_index
+
         def get_verb_form(self,x):
             tense = []
             id_range = []
 
             if x.orth_.lower() == 'being' and str(x.morph)=='VerbForm=Ger' and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_!='VERB':
                 tense.append('being')
-            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ not in ['aux','auxpass']:
+            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ not in set(['aux','auxpass']):
                 tense, id_range = self.get_aux(x)
                 if len(tense) == 0 and x.dep_=='conj':
                     first_verb = x.head
@@ -840,7 +1010,7 @@ class AdoTextAnalyzer(object):
 
                 if 'Aspect=Perf' in x.morph or (self.shared_object.doc[max(0,x.i-1)].lemma_=='have' and self.shared_object.doc[max(0,x.i-1)].pos_=='AUX' or self.shared_object.doc[max(0,x.i-2)].lemma_ == 'have' and self.shared_object.doc[max(0,x.i-2)].pos_=='AUX') and 'VerbForm=Fin' in x.morph and 'Tense=Past' in x.morph:
                     tense.append('done')
-                elif ('Mood=Ind' in x.morph or 'VerbForm=Ger' in x.morph or 'Tense=Past' in x.morph and 'VerbForm=Part' in x.morph) and x.lemma_ in ['be','have']:
+                elif ('Mood=Ind' in x.morph or 'VerbForm=Ger' in x.morph or 'Tense=Past' in x.morph and 'VerbForm=Part' in x.morph) and x.lemma_ in set(['be','have']):
                     if x.orth_.startswith("'") or x.orth_.startswith("’"):
                         tense.append(self.expand_contraction(x))
                     else:
@@ -873,12 +1043,7 @@ class AdoTextAnalyzer(object):
                         if t != new_tense[-1] or t=='do':
                             new_tense.append(t)
                     tense = new_tense
-                    
-                #if tense[0].endswith('ing'):
-                #    if x.head.pos_ == 'ADP' and all([y.pos_ in ['ADV','ADP','VERB','AUX','PART'] for y in doc[x.head.i:x.i]]):
-                #        tense = [x.head.lemma_]+tense
-                #        id_range.append(x.head.i)
-                    
+                      
                 tense = ' '.join(tense).replace("have been","have bEEn").replace("has been","has bEEn").replace("had been","had bEEn").replace('got ta','gotta').replace('gon na','gonna').replace(
                     "have be","have been").replace("has be","has been").replace("had be","had been").lower()
                 
@@ -894,8 +1059,8 @@ class AdoTextAnalyzer(object):
                 tense = tense.replace('ca ','can ').replace('wo ','will ').replace('sha ','shall ').replace('ai ',"ain't ")
                 
                 # Fix some form errors with "have"
-                if tense in ['has','have','had'] and (
-                    (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in ['AUX','VERB']) or (
+                if tense in set(['has','have','had']) and (
+                    (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in set(['AUX','VERB'])) or (
                         x.pos_!='AUX' and any([child.dep_=='dobj' for child in x.children if x.i<child.i]))):
                     tense = {'has':'does','have':'do','had':'did'}[tense]
                 elif tense == 'had do':
@@ -903,7 +1068,7 @@ class AdoTextAnalyzer(object):
                         tense = 'had done'
                     else:
                         tense = 'had better do'
-                elif tense in ['have do','has do','having do','having been do']:
+                elif tense in set(['have do','has do','having do','having been do']):
                     tense = ' '.join(tense.split(' ')[:-1]+['done'])
                 elif tense == 'has doing':
                     tense = 'is doing'
@@ -928,7 +1093,7 @@ class AdoTextAnalyzer(object):
             elif x.orth_.lower().endswith('s'):
                 if x.lemma_ == 'be':
                     t = 'is'
-                    if any([x.i!=x.head.i and child.i>x.head.i and child.pos_ in ['NOUN','PRON','PROPN'] for child in x.head.children]):
+                    if any([x.i!=x.head.i and child.i>x.head.i and child.pos_ in set(['NOUN','PRON','PROPN']) for child in x.head.children]):
                         t = 'has'
                 else:
                     t = 'has'
@@ -940,8 +1105,8 @@ class AdoTextAnalyzer(object):
             if x.dep_=='xcomp' and list(x.children)[0].lemma_!='to' and list(x.children)[0].pos_!='PART':
                 return tense, id_range
             for child in x.children:
-                if child.dep_ in ['aux','auxpass'] and child.i<x.i:# and child.i<x_i
-                    if child.orth_ in ['…','...',';','-','—','–',':']:
+                if child.dep_ in set(['aux','auxpass']) and child.i<x.i:# and child.i<x_i
+                    if child.orth_ in set(['…','...',';','-','—','–',':']):
                         tense = []
                         continue
                     if child.orth_.startswith("'") or child.orth_.startswith("’"):
@@ -956,17 +1121,15 @@ class AdoTextAnalyzer(object):
             tense2 = None
             tense1 = None
             
-            #if x.head.pos_=='ADP' and all([y.pos_ in ['ADV','ADP','VERB','AUX','PART'] for y in doc[x.head.i:x.i]]):
-            #    form = ' '.join(form.split(' ')[1:])
             if form.startswith("ain't"):
                 tense2 = 'contextual'
             elif form == 'had better do':
                 tense2 = 'inf.'
-            elif sum([form.startswith(y) for y in ['did','was','were','had','got']])>0:
+            elif sum([form.startswith(y) for y in set(['did','was','were','had','got'])])>0:
                 tense2 = 'ind. (past)'
             elif form == 'do do' and x.i>=3 and self.shared_object.doc[x.i-1].lemma_=='you' and self.shared_object.doc[x.i-2].lemma_=='not' and self.shared_object.doc[x.i-3].lemma_=='do' and all([child.orth_!='?' for child in x.children if x.i<child.i]):
                 tense2 = 'imp.'
-            elif sum([form.startswith(y) for y in ['do ','does','has','have','am','is','are','gets']])>0:
+            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets'])])>0:
                 tense2 = 'ind. (present)'
             elif form=='do':
                 first = x
@@ -990,9 +1153,9 @@ class AdoTextAnalyzer(object):
                         first = first.head
                 else:
                     first = x
-                if first.head.pos_ in ['VERB','ADP'] and first.dep_ in ['xcomp','pcomp'] or first.dep_=='ccomp' and first.head.pos_=='VERB' and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([first.head.i,first.i])) if i!=first.head.i]) or first.head.pos_=='AUX' and first.dep_=='csubj':
+                if first.head.pos_ in set(['VERB','ADP']) and first.dep_ in set(['xcomp','pcomp']) or first.dep_=='ccomp' and first.head.pos_=='VERB' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([first.head.i,first.i])) if i!=first.head.i]) or first.head.pos_=='AUX' and first.dep_=='csubj':
                     tense2 = 'ger.'
-            elif str(x.morph) in ['VerbForm=Fin','VerbType=Mod']:
+            elif str(x.morph) in set(['VerbForm=Fin','VerbType=Mod']):
                 tense2 = 'fin.'
             else:
                 tense2 = 'inf.'
@@ -1008,7 +1171,7 @@ class AdoTextAnalyzer(object):
                             tense1 = 'be done'
                         else:
                             tense1 = 'be being done'
-                    elif form in ['have done','has done','had done']:
+                    elif form in set(['have done','has done','had done']):
                         tense1 = 'have done'
                     elif form.startswith('having'):
                         tense1 = 'have '+' '.join(form.split(' ')[1:])
@@ -1022,7 +1185,7 @@ class AdoTextAnalyzer(object):
                 if form.endswith('been doing'):
                     tense1 = 'have been doing'
                 else:
-                    if tense2 in ['part. (present)','ger.']:
+                    if tense2 in set(['part. (present)','ger.']):
                         tense1 = 'do'
                     elif form.startswith('having'):
                         tense1 = 'have '+' '.join(form.split(' ')[1:])
@@ -1032,7 +1195,7 @@ class AdoTextAnalyzer(object):
             elif form == 'being':
                 tense1 = 'do'
                 
-            elif form in ['has','had','had']:
+            elif form in set(['has','had','had']):
                 if self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_ == 'PUNCT':
                     tense1 = 'have done'
                 else:
@@ -1052,12 +1215,12 @@ class AdoTextAnalyzer(object):
                 
             level = tenses.get((tense1,tense2),5)
 
-            #if form in ['do do','did do','does do']:
+            #if form in set(['do do','did do','does do']):
             #    if not any([y.lemma_ == 'not' for y in doc[x.head.i:x.i]]):
             #        level = 1
-            if any([form.startswith(m) for m in ['will','may','might','would','could','shall']]):
+            if any([form.startswith(m) for m in set(['will','may','might','would','could','shall'])]):
                 level = max(1,level)
-            elif any([form.startswith(m) for m in ['can','should','must']]):
+            elif any([form.startswith(m) for m in set(['can','should','must'])]):
                 level = max(0.5,level)
             elif tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
                 level = 0
@@ -1074,7 +1237,7 @@ class AdoTextAnalyzer(object):
                         name = f'Future simple ({name} with modal verb "will")'
                 elif form.startswith('to '):
                     name += ' with "to"'
-                elif any([form.startswith(m) for m in ['may','might','would','could','shall','can','should','must']]):
+                elif any([form.startswith(m) for m in set(['may','might','would','could','shall','can','should','must'])]):
                     name += ' with modal verb: {}'.format(form.split(' ')[0])
                     #name += ' with modal verb'
                 elif len(form.split(' '))>=2:
@@ -1093,8 +1256,8 @@ class AdoTextAnalyzer(object):
                 children = []
                 for i in new_members:
                     for child in self.shared_object.doc[i].children:
-                        #if child.dep_ not in ['relcl','ccomp','advcl','acl','csubj'] and not (child.dep_=='pcomp' and child.pos_ in ['VERB','AUX']):
-                        if child.dep_ not in ['relcl','ccomp','advcl','acl','csubj']:
+                        #if child.dep_ not in set(['relcl','ccomp','advcl','acl','csubj']) and not (child.dep_=='pcomp' and child.pos_ in set(['VERB','AUX'])):
+                        if child.dep_ not in set(['relcl','ccomp','advcl','acl','csubj']):
                             children.append(child.i)
                 return self.get_subtree(members,children)
 
@@ -1112,16 +1275,16 @@ class AdoTextAnalyzer(object):
                     first = first.head
             else:
                 first = x
-            if (first.dep_ == 'advcl' or first.dep_ == 'acl') and x.pos_ in ['VERB','AUX']:
+            if (first.dep_ == 'advcl' or first.dep_ == 'acl') and x.pos_ in set(['VERB','AUX']):
                 for child in x.children:
-                    if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
                         children.append(child.i)
                         if clause_form is None and child.i<x.i:
                             if child.tag_ == 'VBG':
                                 clause_form = 'part. (present)'
                             elif child.tag_ == 'VBN':
                                 clause_form = 'part. (past)'
-                            elif child.tag_ in ['WRB','WDT','WP','WP$'] or child.tag_=='IN' and len(list(child.children))==0:
+                            elif child.tag_ in set(['WRB','WDT','WP','WP$']) or child.tag_=='IN' and len(list(child.children))==0:
                                 clause_form = child.lemma_
                 subtree = sorted(self.get_subtree([x.i],children))
                 if clause_form is None:
@@ -1129,18 +1292,18 @@ class AdoTextAnalyzer(object):
                         leftest_child = self.shared_object.doc[min([child.i for child in first.children if child.i<first.i])]
                     except:
                         pass
-                    if leftest_child is not None and (leftest_child.tag_ in ['WRB','WDT','WP','WP$'] or leftest_child.tag_=='IN' and len(list(leftest_child.children))==0):
+                    if leftest_child is not None and (leftest_child.tag_ in set(['WRB','WDT','WP','WP$']) or leftest_child.tag_=='IN' and len(list(leftest_child.children))==0):
                         clause_form = leftest_child.lemma_
-                    elif self.shared_object.doc[subtree[0]].orth_.lower() in ['had','should','were'] and self.shared_object.doc[subtree[0]].pos_=='AUX':
+                    elif self.shared_object.doc[subtree[0]].orth_.lower() in set(['had','should','were']) and self.shared_object.doc[subtree[0]].pos_=='AUX':
                         clause_form = self.shared_object.doc[subtree[0]].orth_.lower()
-                    elif self.shared_object.doc[subtree[0]].tag_ in ['WRB','WDT','WP','WP$'] or self.shared_object.doc[subtree[0]].tag_=='IN' and len(list(self.shared_object.doc[subtree[0]].children))==0:
+                    elif self.shared_object.doc[subtree[0]].tag_ in set(['WRB','WDT','WP','WP$']) or self.shared_object.doc[subtree[0]].tag_=='IN' and len(list(self.shared_object.doc[subtree[0]].children))==0:
                         clause_form = self.shared_object.doc[subtree[0]].lemma_
                     else:
-                        if first.tag_ == 'VBG' and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
+                        if first.tag_ == 'VBG' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
                             clause_form = 'part. (present)'
-                        elif first.tag_ == 'VBN' and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
+                        elif first.tag_ == 'VBN' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
                             clause_form = 'part. (past)'
-                        elif first.tag_ in ['WRB'] or first.tag_=='IN' and len(list(first.children))==0:
+                        elif first.tag_ in set(['WRB']) or first.tag_=='IN' and len(list(first.children))==0:
                             clause_form = x.lemma_
                 if clause_form is None and leftest_child is not None:
                     if leftest_child.tag_=='RB':
@@ -1148,38 +1311,38 @@ class AdoTextAnalyzer(object):
                     elif leftest_child.lemma_!='to':
                         clause_form = '(that)'
                 
-            elif first.dep_ == 'relcl' and 'TO' not in [child.tag_ for child in x.children if child.i < x.i]:
+            elif first.dep_ == 'relcl' and 'TO' not in set([child.tag_ for child in x.children if child.i < x.i]):
                 for child in x.children:
-                    if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
                         children.append(child.i)
-                        if clause_form is None and child.tag_ in ['WRB','WDT','WP','WP$'] and child.i<x.i:
+                        if clause_form is None and child.tag_ in set(['WRB','WDT','WP','WP$']) and child.i<x.i:
                             clause_form = child.lemma_
                 if clause_form is None:
                     for grandchild in sum([list(child.children) for child in x.children if child.i<x.i],[]):
-                        if grandchild.tag_ in ['WRB','WDT','WP','WP$']:
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
                             clause_form = grandchild.lemma_
                             break
                 if clause_form is None:
                     clause_form = '(that)'
                 subtree = self.get_subtree([x.i],children)
-            elif first.dep_ in ['ccomp','csubj'] and x.pos_ in ['VERB','AUX'] and all([self.shared_object.doc[j].lemma_ not in ['"',';'] for j in range(*sorted([x.i,first.head.i]))]):
+            elif first.dep_ in set(['ccomp','csubj']) and x.pos_ in set(['VERB','AUX']) and all([self.shared_object.doc[j].lemma_ not in set(['"',';']) for j in range(*sorted([x.i,first.head.i]))]):
                 for child in x.children:
-                    if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
                         children.append(child.i)
-                        if clause_form is None and child.i<x.i and child.tag_ in ['WRB','WDT','WP','WP$','IN'] and child.pos_!='ADP' and not (first.dep_=='ccomp' and x.i<=first.head.i):
+                        if clause_form is None and child.i<x.i and child.tag_ in set(['WRB','WDT','WP','WP$','IN']) and child.pos_!='ADP' and not (first.dep_=='ccomp' and x.i<=first.head.i):
                             clause_form = child.lemma_
                 subtree = sorted(self.get_subtree([x.i],children))
                 if clause_form is None and not (first.dep_=='ccomp' and x.i<=first.head.i):
-                    for grandchild in sum([list(child.children) for child in x.children if child.i<x.i and child.pos_ not in ['VERB','AUX']],[]):
-                        if grandchild.tag_ in ['WRB','WDT','WP','WP$']:
+                    for grandchild in sum([list(child.children) for child in x.children if child.i<x.i and child.pos_ not in set(['VERB','AUX'])],[]):
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
                             clause_form = grandchild.lemma_
                             break
                 if clause_form is None:
-                    if self.shared_object.doc[subtree[0]].tag_ in ['WRB','WDT','WP','WP$'] and not (first.dep_=='ccomp' and x.i<=first.head.i):
+                    if self.shared_object.doc[subtree[0]].tag_ in set(['WRB','WDT','WP','WP$']) and not (first.dep_=='ccomp' and x.i<=first.head.i):
                         clause_form = self.shared_object.doc[subtree[0]].lemma_
-                    elif x.tag_=='VBN' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
+                    elif x.tag_=='VBN' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
                         clause_form = 'part. (past)'
-                    elif x.tag_=='VBG' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([subtree[0],first.i]))]):
+                    elif x.tag_=='VBG' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
                         clause_form = None
                     elif x.tag_=='VB' and all(self.shared_object.doc[i].pos_!='AUX' for i in range(*sorted([first.head.i,first.i]))):
                         clause_form = None
@@ -1191,15 +1354,15 @@ class AdoTextAnalyzer(object):
                 if first.dep_ == 'ccomp' and (self.shared_object.doc[min(last_i+1,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+2,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+3,len(self.shared_object.doc)-1)].lemma_=='so'):
                     clause_form = None
                     subtree = None
-            elif first.dep_=='pcomp' and x.pos_ in ['VERB','AUX']:
+            elif first.dep_=='pcomp' and x.pos_ in set(['VERB','AUX']):
                 for child in x.children:
-                    if child.dep_ not in ['relcl','advcl','ccomp','acl','csubj'] and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
                         children.append(child.i)
-                        if clause_form is None and child.i<x.i and child.tag_ in ['WRB','WDT','WP','WP$']:
+                        if clause_form is None and child.i<x.i and child.tag_ in set(['WRB','WDT','WP','WP$']):
                             clause_form = child.lemma_
                 if clause_form is None:
                     for grandchild in sum([list(child.children) for child in x.children if child.i<x.i],[]):
-                        if grandchild.tag_ in ['WRB','WDT','WP','WP$']:
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
                             clause_form = grandchild.lemma_
                             break
                 subtree = sorted(self.get_subtree([x.i],children))
@@ -1212,7 +1375,7 @@ class AdoTextAnalyzer(object):
             #    clause_form = '(parataxis)'
                 
             if subtree is None or clause_form is None:
-                if x.dep_=='conj' and x.pos_ in ['VERB','AUX']:
+                if x.dep_=='conj' and x.pos_ in set(['VERB','AUX']):
                     temp_children = list(x.children)
                     if len(temp_children)>0 and temp_children[0].dep_ == 'mark':
                         clause_form = temp_children[0].lemma_
@@ -1241,11 +1404,11 @@ class AdoTextAnalyzer(object):
                     clause = 'parenthesis'
                 elif clause != 'cc':
                     clause = first.dep_
-                if clause in ['ccomp','csubj','pcomp']:
+                if clause in set(['ccomp','csubj','pcomp']):
                     clause = 'ncl'
                 elif clause == 'prep':
                     clause = 'advcl'
-                elif clause in ['relcl','acl'] and x.head.orth_.lower()=='idea' and x.head.head.lemma_ in ['have','get']:
+                elif clause in set(['relcl','acl']) and x.head.orth_.lower()=='idea' and x.head.head.lemma_ in set(['have','get']):
                     clause = 'ncl'
                 subtree = sorted(set(subtree))
                 level = self.clause2level(clause_form,clause,subtree,first,leftest_child)
@@ -1256,7 +1419,7 @@ class AdoTextAnalyzer(object):
             if clause == 'relcl':
                 if any([child.pos_=='ADP' for child in first.children if child.i<first.i]):
                     level = 3
-                elif clause_form in ['whose','where','when','why','how','whether','what'] or self.shared_object.doc[subtree[-1]].pos_=='ADP' and len(list(self.shared_object.doc[subtree[-1]].children))==0:
+                elif clause_form in set(['whose','where','when','why','how','whether','what']) or self.shared_object.doc[subtree[-1]].pos_=='ADP' and len(list(self.shared_object.doc[subtree[-1]].children))==0:
                     level = 2
                 else:
                     level = 1
@@ -1268,9 +1431,9 @@ class AdoTextAnalyzer(object):
                     level = 3
                 elif clause_form.startswith('part.'):
                     level = 3
-                elif clause_form in ['whose','where','when','why','how','whether','what','who','which','if']:
+                elif clause_form in set(['whose','where','when','why','how','whether','what','who','which','if']):
                     level = 3
-                elif clause_form in ['that','(that)']:
+                elif clause_form in set(['that','(that)']):
                     level = 2
                     
             elif clause == 'advcl':
@@ -1278,17 +1441,17 @@ class AdoTextAnalyzer(object):
                     level = 4
                 elif clause_form.startswith('part.'):
                     level = 2
-                elif (leftest_child is not None and leftest_child.tag_=='IN' or self.shared_object.doc[min(subtree)].tag_=='IN') and first.tag_ in ['VBG','VBN'] and all([self.shared_object.doc[i].tag_ not in ['VBZ','VBD','VBP','VB'] for i in range(*sorted([min(subtree),first.i]))]):
+                elif (leftest_child is not None and leftest_child.tag_=='IN' or self.shared_object.doc[min(subtree)].tag_=='IN') and first.tag_ in set(['VBG','VBN']) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([min(subtree),first.i]))]):
                     level = 4
-                elif clause_form in ['that','(that)','when']:
+                elif clause_form in set(['that','(that)','when']):
                     level = 1
-                elif clause_form in ['because','so','but']:
+                elif clause_form in set(['because','so','but']):
                     level = 0
-                elif clause_form in ['whether','since','as']:
+                elif clause_form in set(['whether','since','as']):
                     level = 2
-                elif clause_form in ['where','how','what']:
+                elif clause_form in set(['where','how','what']):
                     level = 4
-                elif clause_form in ['had','should','were']:
+                elif clause_form in set(['had','should','were']):
                     level = 5
                 
             elif clause == 'prep':
@@ -1407,10 +1570,10 @@ class AdoTextAnalyzer(object):
                     if x.orth_ == '"':
                         is_white_space = False
                         
-                    if count_token+1 < len(sent) and x.orth_ == ' ' and sent[count_token+1].orth_ in ['[', '(', '"']:
+                    if count_token+1 < len(sent) and x.orth_ == ' ' and sent[count_token+1].orth_ in set(['[', '(', '"']):
                         the_orth = ''
                         
-                    if count_token+1 < len(sent) and sent[count_token+1].orth_ in ['[', '(', '"']:
+                    if count_token+1 < len(sent) and sent[count_token+1].orth_ in set(['[', '(', '"']):
                         is_white_space = False
 
                     if the_orth == '' and not is_white_space:
@@ -1423,27 +1586,32 @@ class AdoTextAnalyzer(object):
                             continue
                     elif '\n' in the_orth:
                         the_orth = the_orth.strip(' ')
+
                     ###################################
 
                     if x.pos_ == 'PUNCT' or x.pos_ == 'SPACE':
-                        rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
-                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None})
+                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                     elif not bool(re.match(".*[A-Za-z]+",x.lemma_)):
-                        rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_,'pos':'PUNCT','CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':'PUNCT','CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
-                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None})
+                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                     else:
                         if x.pos_ == 'INTJ' and self.__settings['intj_as_lowest']==True:
-                            rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                         'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
-                                        'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None})
+                                        'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                        'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                             continue
                         elif x.pos_ == 'PROPN':
                             if self.__settings['propn_as_lowest']==True:
-                                rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                             'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
-                                            'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None})
+                                            'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                            'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                                 continue
                             else:
                                 x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
@@ -1456,8 +1624,10 @@ class AdoTextAnalyzer(object):
                         tense1 = None
                         tense2 = None
                         tense_term = None
+
+                        # Verb forms
                         try:
-                            if x.pos_ in ['VERB','AUX']:
+                            if x.pos_ in set(['VERB','AUX']):
                                 form, tense_span = self.get_verb_form(x)
                         except:
                             pass
@@ -1467,14 +1637,16 @@ class AdoTextAnalyzer(object):
                                 tense_level, form = self.tense2level(form,tense1,tense2,x)
                                 tense_term = self.convert_tense_name(form,tense1,tense2)
                                 
+                        # Clauses
                         clause_form, clause, clause_span, clause_level = self.get_clause(x)
-                        if str(the_orth).lower() in stopwords.words('english'):
+                        if x.orth_.lower() in stopwords.words('english'):
                             word_lemma = tuple([x.lemma_,'STOP'])
-                            word_orth = tuple([str(the_orth).lower(),'STOP'])
+                            word_orth = tuple([x.orth_.lower(),'STOP'])
                         else:
                             word_lemma = tuple([x.lemma_,x.pos_])
-                            word_orth = tuple([str(the_orth).lower(),x.pos_])
+                            word_orth = tuple([x.orth_.lower(),x.pos_])
 
+                        # Vocabulary
                         if self.__settings['keep_min']:
                             cefr_w_pos_prim = cefr_w_pos_min_prim
                             cefr_wo_pos_prim = cefr_wo_pos_min_prim
@@ -1511,15 +1683,50 @@ class AdoTextAnalyzer(object):
                             elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
                                 level = 0
                             else:
-                                level = max(2,self.predict_cefr(x.lemma_.lower(),x.pos_))
+                                level = max(2,self.predict_cefr(x.lemma_,x.pos_))
 
-                        rows.append({'id':x.i,'word':the_orth,'lemma':x.lemma_.lower(),'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                        # Phrases
+                        phrase = None
+                        phrase_span = None
+                        max_confidence = 0
+                        ambiguous = True
+                        if x.pos_ not in set(["DET","PART"]) and x.lemma_ in df_phrases['word'].values:
+                            #max_phrase_length = 0
+                            max_clean_length = 0
+
+                            df_phrases_temp = df_phrases[df_phrases['word']==x.lemma_]
+                            sentence_parts = []
+                            for _, row in df_phrases_temp.iterrows():
+
+                                if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
+                                    continue
+
+                                phrase_parts = row['phrase_parts']
+
+                                #if phrase_length > max_phrase_length:
+                                #    sentence_parts, start_index = self.get_sentence_parts(x,phrase_length)
+                                #    max_phrase_length = phrase_length
+
+                                sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
+                                if len(phrase_parts)>len(sentence_parts):
+                                    continue
+                                phrase_span_temp, confidence_temp = self.get_phrase(phrase_parts, row['pos'].split(' '), sentence_parts, start_index, row['followed_by'])
+
+                                if phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or confidence_temp==max_confidence and len(phrase_parts)>max_clean_length):
+                                    phrase_span = list(np.array(phrase_span_temp) + start_index)
+                                    phrase = row['original']
+                                    max_clean_length = len(phrase_parts)
+                                    max_confidence = confidence_temp
+                                    ambiguous = row['ambiguous']
+                                    #ambiguous=False
+                                    
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
-                                    'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span})
+                                    'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
+                                    'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous})
 
-                df_lemma =  pd.DataFrame(rows)
+                df_lemma = pd.DataFrame(rows)
                 if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
-                    df_lemma =  pd.DataFrame(rows)
                     dfs[n_sent] = df_lemma
                     rows = []
 
@@ -1530,6 +1737,9 @@ class AdoTextAnalyzer(object):
             n_clauses = 0
             clause_levels = []
             sentences = {}
+
+            dfs_phrase_count = []
+
             for sentence_id, df in dfs.items():
                 #clause_level = self.sentence_clause_level(df['CEFR_clause'].dropna().values)
                 #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
@@ -1539,10 +1749,27 @@ class AdoTextAnalyzer(object):
                 clause_level = min(np.nanmean([level_by_length,level_by_clause]),6)
                 clause_levels.append(clause_level)
 
+                if self.__settings['return_sentences'] or self.__settings['return_phrase_count']:
+                    df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','sentence_id']].dropna()
+                    if len(df2)>0:
+                        filter_ = []
+                        spans = df2['phrase_span'].values
+                        for i in range(len(spans)):
+                            unique = True
+                            for j in range(len(spans)):
+                                if i!=j and spans[i][0]>=spans[j][0] and spans[i][-1]<=spans[j][-1]:
+                                    unique = False
+                                    break
+                            filter_.append(unique)
+                        df2 = df2[filter_]
+                        dfs_phrase_count.append(df2)
+                        phrase_dict = df2[['phrase','phrase_span','phrase_confidence','phrase_ambiguous']].to_dict(orient='list')
+                    else:
+                        phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[]}
+
                 if self.__settings['return_sentences']:
                     lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR']].to_dict(orient='list')
                     df2 = df[['form','tense1','tense2','CEFR_tense','tense_span']].dropna()
-
                     level_dict = {'CEFR_vocabulary':6,'CEFR_tense':5}
                     if len(df2)>0:
                         tense_dict = df2[['form','tense1','tense2','CEFR_tense','tense_span']].to_dict(orient='list')
@@ -1552,7 +1779,6 @@ class AdoTextAnalyzer(object):
                         level_dict['CEFR_tense'] = 0
 
                     df2 = df[['clause_form','clause','clause_span']].dropna()
-                    #df2 = df2[~pd.isnull(df2['clause_span'])]
                     if len(df2)>0:
                         n_clausal += 1
                         n_clauses += len(df2)
@@ -1567,7 +1793,7 @@ class AdoTextAnalyzer(object):
                     level_dict['CEFR_vocabulary'] = self.ninety_five(cumsum_series)
                     level_dict['CEFR_clause'] = round(clause_level,1)
 
-                    sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict}
+                    sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,**phrase_dict}
                 
             if self.__settings['return_wordlists']:
                 wordlists = {}
@@ -1654,7 +1880,17 @@ class AdoTextAnalyzer(object):
                         temp_dict['sentence_id'][form_id[form[0]+'_'+str(form[1])]] = group['sentence_id'].astype(int).tolist()
                     clause_count[clause] = temp_dict
             
-            
+            if self.__settings['return_phrase_count']:
+                phrase_count = {}
+                if len(dfs_phrase_count)>0:
+                    df_phrase_count = pd.concat(dfs_phrase_count)
+                    for phrase,group in df_phrase_count.groupby('phrase',as_index=True):
+                        group['span_string'] = group['phrase_span'].astype(str)
+                        group = group.drop_duplicates(['span_string','sentence_id'])
+                        temp_df = group.agg(len)['sentence_id']
+                        temp_dict = {'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'phrase_ambiguous':group['phrase_ambiguous'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        phrase_count[phrase] = temp_dict
+
             if n_clausal==0:
                 mean_clause = 0
             else:
@@ -1673,7 +1909,7 @@ class AdoTextAnalyzer(object):
                         'sum_type':{'values':list(sum_series_type.astype(int))},
                         'cumsum_type':{'values':list(np.round(cumsum_series_type.values,4))}}
             
-            for k in ['cumsum_token','cumsum_type']:
+            for k in set(['cumsum_token','cumsum_type']):
                 a,b,c,d = self.fit_sigmoid((stats_dict[k]['values'][1:-1]),range(6))
                 stats_dict[k]['constants']=[a,b,c,d]
                 if k == 'cumsum_token':
@@ -1734,6 +1970,9 @@ class AdoTextAnalyzer(object):
             if self.__settings['return_clause_stats']:
                 result_dict['clause_stats'] = clause_stats
                 #self.clause_stats = clause_stats
+            if self.__settings['return_phrase_count']:
+                result_dict['phrase_count'] = phrase_count
+                #self.clause_count = clause_count
             if self.__settings['return_final_levels']:
                 result_dict['final_levels'] = final_levels
                 #self.final_levels = final_levels
@@ -1816,7 +2055,7 @@ class AdoTextAnalyzer(object):
         def start_analyze(self, propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                         return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                         return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                        return_clause_stats=True,return_final_levels=True):
+                        return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
             self.__settings['propn_as_lowest']=propn_as_lowest
             self.__settings['intj_as_lowest']=intj_as_lowest
             self.__settings['keep_min']=keep_min
@@ -1829,6 +2068,7 @@ class AdoTextAnalyzer(object):
             self.__settings['return_clause_count']=return_clause_count
             self.__settings['return_clause_stats']=return_clause_stats
             self.__settings['return_final_levels']=return_final_levels
+            self.__settings['return_phrase_count']=return_phrase_count
             self.process()
 
         def print_settings(self):
@@ -1893,7 +2133,7 @@ class AdoTextAnalyzer(object):
                 self.result = {'gunning_fog':textstat.gunning_fog(text),
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
-            elif language in ['de','fr','nl','ru']:
+            elif language in set(['de','fr','nl','ru']):
                 self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'lexicon_count':textstat.lexicon_count(text, removepunct=True),
                         'sentence_count':textstat.sentence_count(text)}
@@ -1937,6 +2177,10 @@ df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
 df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
 
 cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
+
+df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))[['original','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
+people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
+
 
 # Lexile files
 neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)

@@ -75,7 +75,7 @@ class SolarSpacy(Language):
 					sent_end = False
 				elif counter > 1 and token.text != '"':
 						token.is_sent_start = False
-				if token.is_punct and token.text.strip() not in [',', ';', '"', '—', '-', "'", '(', ')', '[', ']','']:
+				if token.is_punct and token.text.strip() not in set([',', ';', '"', '—', '-', "'", '(', ')', '[', ']','']):
 					sent_end = True
 			else:
 				counter = 0
@@ -121,8 +121,23 @@ class SolarSpacy(Language):
 		infixes = [x for x in infixes if '-|–|—|--|---|——|~' not in x] # Remove - between letters rule
 		infix_re = compile_infix_regex(infixes)
 
+		rules = nlp.Defaults.tokenizer_exceptions
+		rules["'tis"] = [{"ORTH": "'t"}, {"ORTH": "is"}]
+		rules["'Tis"] = [{"ORTH": "'T"}, {"ORTH": "is"}]
+		rules["'TIS"] = [{"ORTH": "'T"}, {"ORTH": "IS"}]
+		#rules["gotta"] = [{"ORTH": "got"}, {"ORTH": "ta"}]
+		#rules["wanna"] = [{"ORTH": "wan"}, {"ORTH": "na"}]
+		#rules["outa"] = [{"ORTH": "out"}, {"ORTH": "a"}]
+		#rules["gonna"] = [{"ORTH": "gon"}, {"ORTH": "na"}]
+
+		preserved = ["whys","'m","gotta","wanna","outa","gonna","me","him","her","us","them","'til","'Til","'tween","'Tween"]
+		for x in preserved:
+			rules[x] = [{"ORTH": x}]
+			rules[x.upper()] = [{"ORTH": x.upper()}]
+			rules[x.capitalize()] = [{"ORTH": x.capitalize()}]
+			
 		return Tokenizer(nlp.vocab, prefix_search=nlp.tokenizer.prefix_search,
 									suffix_search=nlp.tokenizer.suffix_search,
 									infix_finditer=infix_re.finditer,
 									token_match=nlp.tokenizer.token_match,
-									rules=nlp.Defaults.tokenizer_exceptions)
+									rules=rules)

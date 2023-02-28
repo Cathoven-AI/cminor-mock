@@ -17,24 +17,22 @@ def fine_lemmatize(x,doc,spacy):
         x.lemma_ = x.lemma_.strip('-')
 
     # Lemmatize special plurals
-    #if x.tag_ in ['NNPS','NNS']:
+    #if x.tag_ in set(['NNPS','NNS']):
     #    if x.orth_.lower() in no_singular.iloc[:,0].values:
     #        x.lemma_ = x.orth_.lower()
 
-    
-
     if x.lemma_ == 'an':
         x.lemma_ = 'a'
-    elif x.lemma_ in ['got','gotten']:
+    elif x.lemma_ in set(['got','gotten']):
         x.lemma_ = 'get'
-    elif x.lemma_ in ["n't","n’t", "not"]:
+    elif x.lemma_ in set(["n't","n’t", "not"]):
         x.lemma_ = 'not'
         x.pos_ = 'ADV'
-    elif x.lemma_ in ["'ll","’ll"]:
+    elif x.lemma_ in set(["'ll","’ll"]):
         x.lemma_ = 'will'
         if x.pos_ == 'VERB':
             x.pos_ = 'AUX'
-    elif x.orth_.lower() in ["'d","’d"]:
+    elif x.orth_.lower() in set(["'d","’d"]):
         if 'Aspect=Perf' in doc[min(x.i+1,len(doc)-1)].morph:
             x.lemma_ = 'have'
         elif x.tag_ == 'MD':
@@ -49,31 +47,40 @@ def fine_lemmatize(x,doc,spacy):
             x.pos_ = 'VERB'
             x.tag_ = 'MD'
             x.dep_ = 'aux'
-            
-    elif x.lemma_ in ["'","’"] and spacy.explain(x.tag_) == 'verb, 3rd person singular present':
-        x.lemma_ = 'be'
-    elif x.lemma_ in ["'ve","’ve"]:
-        x.lemma_ = 'have'
-    elif x.lemma_ in ["'s","’s"] and x.pos_ == 'PRON':
-        x.lemma_ = 'us'
-    elif x.lemma_ in ["'","’"] and x.pos_ == 'PART':
-        x.lemma_ = 'us'
+    elif x.orth_.lower() == "'t":
+        x.lemma_ = 'it'
         x.pos_ = 'PRON'
-    elif x.lemma_ in ["ca","Ca"] and x.pos_ == 'AUX':
+    elif x.lemma_ in set(["'","’"]):
+        if x.pos_ == 'PART':
+            if x.i>=0 and doc[x.i-1].pos_ not in set(['NOUN','PROPN']):
+                x.lemma_ = 'us'
+                x.pos_ = 'PRON'
+            else:
+                x.lemma_ = "'s"
+        elif spacy.explain(x.tag_) == 'verb, 3rd person singular present':
+            x.lemma_ = 'be'
+    elif x.lemma_ in set(["'ve","’ve"]):
+        x.lemma_ = 'have'
+    elif x.lemma_ in set(["'s","’s"]) and x.pos_ == 'PRON':
+        x.lemma_ = 'us'
+    elif x.lemma_ in set(["ca","Ca"]) and x.pos_ == 'AUX':
         x.lemma_ = 'can'
-    elif x.lemma_ in ["sha","Sha"] and x.pos_ == 'AUX':
+    elif x.lemma_ in set(["sha","Sha"]) and x.pos_ == 'AUX':
         x.lemma_ = 'shall'
-    elif x.lemma_ in ["ai","Ai"] and x.pos_ == 'AUX':
+    elif x.lemma_ in set(["ai","Ai"]) and x.pos_ == 'AUX':
         if spacy.explain(x.head.tag_) == 'verb, past participle':
             x.lemma_ = 'have'
         else:
             x.lemma_ = 'be'
-
-    #elif x.lemma_ in ["to"]:
+    #elif x.lemma_ in set(["to"]):
     #    x.pos_ = 'ADP'
-    elif x.lemma_ in ["can", "could", "will", "would", "should", "may", "might", "must", "shall", "ought", "cannot",
-                      "Can", "Could", "Will", "Would", "Should", "May", "Might", "Must", "Shall", "Ought", "Cannot"] and x.pos_ == 'VERB':
+    elif x.lemma_ in set(["can", "could", "will", "would", "should", "may", "might", "must", "shall", "ought", "cannot",
+                      "Can", "Could", "Will", "Would", "Should", "May", "Might", "Must", "Shall", "Ought", "Cannot"]) and x.pos_ == 'VERB':
         x.pos_ = 'AUX'
+    elif x.orth_.lower() in set(['me','him','her','us',"them"]):
+        x.lemma_ = x.orth_.lower()
+    elif x.lemma_ == 'wilde' and x.pos_=='VERB':
+        x.lemma_ = 'wild'
 
     if x.lemma_ == 'be' and x.i==x.head.i:
         x.pos_ = 'VERB'
