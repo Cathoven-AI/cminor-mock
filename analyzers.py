@@ -7,7 +7,7 @@ import pandas as pd
 from . import spacy
 from . import word as solar_word
 from . import modify_text
-from edit_distance_modified import edit_distance
+from .edit_distance_modified import edit_distance
 import pickle, re, tensorflow, textstat, warnings
 from textacy import text_stats
 from collections import Counter
