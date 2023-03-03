@@ -2016,7 +2016,7 @@ class AdoTextAnalyzer(object):
                         group['span_string'] = group['phrase_span'].astype(str)
                         group = group.drop_duplicates(['span_string','sentence_id'])
                         temp_df = group.agg(len)['sentence_id']
-                        temp_dict = {'id':phrase_original2id.get(phrase,0),'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'phrase_ambiguous':group['phrase_ambiguous'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':group['phrase_ambiguous'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
                         phrase_count[phrase] = temp_dict
 
             mean_clause = n_clausal and n_clauses/n_clausal or 0
