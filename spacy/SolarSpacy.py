@@ -130,7 +130,7 @@ class SolarSpacy(Language):
 		#rules["outa"] = [{"ORTH": "out"}, {"ORTH": "a"}]
 		#rules["gonna"] = [{"ORTH": "gon"}, {"ORTH": "na"}]
 
-		preserved = ["whys","'m","gotta","wanna","outa","gonna","me","him","her","us","them","'til","'Til","'tween","'Tween"]
+		preserved = ["whys","'m","gotta","wanna","outa","gonna","me","him","her","us","them","your","'til","'Til","'tween","'Tween"]
 		for x in preserved:
 			rules[x] = [{"ORTH": x}]
 			rules[x.upper()] = [{"ORTH": x.upper()}]

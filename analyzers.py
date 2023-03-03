@@ -22,6 +22,113 @@ from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
+# Lexile files
+neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/lexile_linear.pkl'), 'rb') as file:
+    linear_model = pickle.load(file)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/nsyl_high_mean_arr.npy'), 'rb') as f:
+    nsyl_high_mean_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/decode_original_arr.npy'), 'rb') as f:
+    decode_original_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/freq_high_mean_arr.npy'), 'rb') as f:
+    freq_high_mean_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_log_freq_token_no_stop_arr.npy'), 'rb') as f:
+    mean_log_freq_token_no_stop_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_log_freq_type_arr.npy'), 'rb') as f:
+    mean_log_freq_type_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/aoa_high_mean_arr.npy'), 'rb') as f:
+    aoa_high_mean_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/abstract_high_mean_arr.npy'), 'rb') as f:
+    abstract_high_mean_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_length_arr.npy'), 'rb') as f:
+    mean_length_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lev_distance_arr.npy'), 'rb') as f:
+    mean_lev_distance_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lcs2_arr.npy'), 'rb') as f:
+    mean_lcs2_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lcs3_arr.npy'), 'rb') as f:
+    mean_lcs3_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mtld_arr.npy'), 'rb') as f:
+    mtld_arr = np.load(f)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/hdd_arr.npy'), 'rb') as f:
+    hdd_arr = np.load(f)
+
+br2am = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/br2am_2021.04.25.xlsx'))
+br2am_dict = dict(zip(br2am.british, br2am.american))
+
+df_corpus = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/Corpus_frequency_log.xlsx'))
+corpus_words = df_corpus['word'].to_list()
+corpus_freq = df_corpus['TOTAL'].to_list()
+most_freq_50 = set(stopwords.words('english'))
+
+df_aoa = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/AoA_ratings_Kuperman_et_al_BRM.xlsx'))
+# remove nan values
+df_aoa = df_aoa[~df_aoa['Rating.Mean'].isna()]
+# shortlist the 50 most frequent words
+df_aoa = df_aoa[~df_aoa.Word.isin(most_freq_50)]
+aoa_words = list(df_aoa['Word'].values)
+aoa = df_aoa['Rating.Mean'].to_list()
+
+df_mrc = pd.read_csv(os.path.join(BASE_DIR, 'files/model_files/mrc_database_cnc_img_nsyl_nphon.csv'))
+df_abstract = df_mrc[df_mrc['img'] != 0]
+# shotlist the 50 most frequent words
+df_abstract = df_abstract[~df_abstract.word.isin(most_freq_50)]
+abstract_words = df_abstract['word'].to_list()
+abstract = list(700 - df_abstract['img'].values)
+
+# CEFR files
+cefr_w_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_min_prim.pkl'),'rb'))
+cefr_wo_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_min_prim.pkl'),'rb'))
+cefr_w_pos_mean_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_mean_prim.pkl'),'rb'))
+cefr_wo_pos_mean_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_mean_prim.pkl'),'rb'))
+
+cefr_w_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos.pkl'),'rb'))
+cefr_wo_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos.pkl'),'rb'))
+cefr_w_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_sup.pkl'),'rb'))
+cefr_wo_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_sup.pkl'),'rb'))
+
+df_reference_words = pd.concat([pd.DataFrame(pd.Series(cefr_w_pos_min_prim)).reset_index(),pd.DataFrame(pd.Series(cefr_w_pos)).reset_index()]).drop_duplicates(['level_0','level_1'])
+df_temp = df_reference_words[df_reference_words['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
+df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
+df_reference_words = pd.concat([df_reference_words,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
+
+df_reference_words_sup = pd.DataFrame(pd.Series(cefr_w_pos_sup)).reset_index()
+df_temp = df_reference_words_sup[df_reference_words_sup['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
+df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
+df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
+
+cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
+
+
+df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))
+df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
+phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
+people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
+
+
+del br2am, df_corpus, df_aoa, df_mrc, df_abstract, df_temp
+
+
+nlp = spacy.load('en_core_web_trf')
+
+stemmers = [PorterStemmer(), LancasterStemmer()]
+lemmatizer = WordNetLemmatizer()
+
+
 class AdoTextAnalyzer(object):
     def __init__(self):
         self.text = None
@@ -50,6 +157,8 @@ class AdoTextAnalyzer(object):
         if self.cefr is None or temp_settings!=self.cefr.print_settings():
             if self.doc is None:
                 self.doc = nlp(self.text)
+                for x in self.doc:
+                    x = fine_lemmatize(x,self.doc,nlp)
             self.cefr = self.CefrAnalyzer(self)
             self.cefr.start_analyze(propn_as_lowest,intj_as_lowest,keep_min,
                         return_sentences, return_wordlists,return_vocabulary_stats,
@@ -83,6 +192,8 @@ class AdoTextAnalyzer(object):
         if self.catile is None:
             if self.doc is None:
                 self.doc = nlp(self.text)
+                for x in self.doc:
+                    x = fine_lemmatize(x,self.doc,nlp)
             self.catile = self.CatileAnalyzer(self)
             self.catile.start_analyze()
         if return_result:
@@ -307,7 +418,7 @@ class AdoTextAnalyzer(object):
             for x in doc:
                 if bool(re.search('[a-zA-Z]', x.sent.text)):
 
-                    x = fine_lemmatize(x,doc,nlp)
+                    #x = fine_lemmatize(x,doc,nlp)
                     
                     original_list.append(x.orth_)
                     
@@ -826,6 +937,28 @@ class AdoTextAnalyzer(object):
             #self.final_levels = None
             self.result = None
 
+        def get_word_cefr(self,word_lemma,word_orth="",cefr_w_pos_prim=cefr_w_pos_min_prim,cefr_wo_pos_prim=cefr_wo_pos_min_prim):
+            if word_orth=="":
+                word_orth = word_lemma
+            level = cefr_w_pos_prim.get(word_lemma,6)
+            if level == 6:
+                level = cefr_w_pos.get(word_lemma,6)
+                if level == 6:
+                    level = max(2,cefr_w_pos_sup.get(word_lemma,6))
+                    if level == 6:
+                        level = cefr_w_pos_prim.get(word_orth,6)
+                        if level == 6:
+                            level = cefr_w_pos.get(word_orth,6)
+                            if level == 6:
+                                level = max(2,cefr_w_pos_sup.get(word_orth,6))
+                                if level == 6:
+                                    level = cefr_wo_pos_prim.get(word_lemma[0],6)
+                                    if level == 6:
+                                        level = cefr_wo_pos.get(word_lemma[0],6)
+                                        if level == 6:
+                                            level = max(2,cefr_wo_pos_sup.get(word_orth[0],6))
+            return level
+
         def get_phrase(self, phrase, phrase_pos, sentence, sentence_start_index, followed_by, window_size=3):
             
             confidence = length = len(phrase)
@@ -840,21 +973,26 @@ class AdoTextAnalyzer(object):
                         return None, 0
                     else:
                         filter_.append(True)
-                    if any([x.endswith('self') or x.endswith('selves') for x in phrase[opcode[1]]]) and any([x.endswith('self') or x.endswith('selves') for x in set(sentence[opcode[3]])]):
+                    if any([x in set(['oneself','yourself']) for x in phrase[opcode[1]]]) and any([x.endswith('self') or x.endswith('selves') for x in set(sentence[opcode[3]])]):
                         confidence += 0.5
                     confidence -= 1
                 elif opcode[0] == 'equal':
                     filter_.append(True)
                     pos_original = phrase_pos[opcode[1]]
                     pos_in_sent = self.shared_object.doc[opcode[3]+sentence_start_index].pos_
-                    if pos_original!=pos_in_sent and not (pos_original=='ADP' and pos_in_sent=='ADV' or pos_original=='ADV' and pos_in_sent=='ADP' or pos_original=="PROPN" or pos_in_sent=="PROPN"):
+                    if pos_original!=pos_in_sent and not (pos_original=='ADP' and pos_in_sent=='ADV' or 
+                                                          pos_original=='ADV' and pos_in_sent=='ADP' or 
+                                                          pos_original=="PROPN" or 
+                                                          pos_in_sent=="PROPN"):
                         confidence -= 1
-                    if pos_original==pos_in_sent=="VERB" and len(set(sentence[opcode[3]])-set(phrase[opcode[1]]))>0:
-                        if opcode[1]==0 and len(set(phrase[opcode[1]]))-len(set(sentence[opcode[3]]))>0 or opcode[1]>=1 and opcode[3]>1 and 'be' in phrase[opcode[1]-1]+sentence[opcode[3]-1]:
-                            confidence -= 1
+
+                    #if pos_original==pos_in_sent=="VERB" and len(set(sentence[opcode[3]])-set(phrase[opcode[1]]))>0:
+                    #    if opcode[1]==0 and len(set(phrase[opcode[1]]))-len(set(sentence[opcode[3]]))>0 or opcode[1]>=1 and opcode[3]>1 and 'be' in phrase[opcode[1]-1]+sentence[opcode[3]-1]:
+                    #        confidence -= 1
                 else:
                     filter_.append(False)
-
+            
+            
             matching_blocks = np.array(opcodes)[filter_][:,[1,3]].astype(int)
             
             operations = np.array(opcodes).T[0]
@@ -932,10 +1070,10 @@ class AdoTextAnalyzer(object):
                     confidence -= 1
                 if n_insertions>window_size:
                     confidence -= n_insertions-window_size
-
+            
             if confidence<=0:
                 return None, 0
-
+            
             span = list(np.array(matching_blocks)[:,1])
 
             phrase_start_index = span[0]+sentence_start_index
@@ -945,7 +1083,7 @@ class AdoTextAnalyzer(object):
                 if followed_by_something:
                     confidence -= 1
             else:
-                if not followed_by_something and self.shared_object.doc[phrase_start_index].tag_!='VBN':
+                if followed_by[-1]!='a' and not followed_by_something and self.shared_object.doc[phrase_start_index].tag_!='VBN' and self.shared_object.doc[max(0,phrase_start_index-1)].lemma_!='to':
                     confidence -= 1
                 if followed_by[-1] in set(['p','t']):
                     followed_by_person = False
@@ -1591,32 +1729,32 @@ class AdoTextAnalyzer(object):
 
                     if x.pos_ == 'PUNCT' or x.pos_ == 'SPACE':
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
+                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                     'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                     elif not bool(re.match(".*[A-Za-z]+",x.lemma_)):
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':'PUNCT','CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
+                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                     'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                     else:
                         if x.pos_ == 'INTJ' and self.__settings['intj_as_lowest']==True:
                             rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                        'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
+                                        'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                         'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                         'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                             continue
                         elif x.pos_ == 'PROPN':
                             if self.__settings['propn_as_lowest']==True:
                                 rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                            'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,
+                                            'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                             'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                             'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
                                 continue
                             else:
                                 x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
                             
-                        x = fine_lemmatize(x,self.shared_object.doc,nlp)
+                        #x = fine_lemmatize(x,self.shared_object.doc,nlp)
 
                         tense_level = None
                         form = None
@@ -1654,23 +1792,7 @@ class AdoTextAnalyzer(object):
                             cefr_w_pos_prim = cefr_w_pos_mean_prim
                             cefr_wo_pos_prim = cefr_wo_pos_mean_prim
 
-                        level = cefr_w_pos_prim.get(word_lemma,6)
-                        if level == 6:
-                            level = cefr_w_pos.get(word_lemma,6)
-                            if level == 6:
-                                level = max(2,cefr_w_pos_sup.get(word_lemma,6))
-                                if level == 6:
-                                    level = cefr_w_pos_prim.get(word_orth,6)
-                                    if level == 6:
-                                        level = cefr_w_pos.get(word_orth,6)
-                                        if level == 6:
-                                            level = max(2,cefr_w_pos_sup.get(word_orth,6))
-                                            if level == 6:
-                                                level = cefr_wo_pos_prim.get(word_lemma[0],6)
-                                                if level == 6:
-                                                    level = cefr_wo_pos.get(word_lemma[0],6)
-                                                    if level == 6:
-                                                        level = max(2,cefr_wo_pos_sup.get(word_orth[0],6))
+                        level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
 
                         if level == 6:
                             if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
@@ -1730,7 +1852,13 @@ class AdoTextAnalyzer(object):
                     dfs[n_sent] = df_lemma
                     rows = []
 
-            df_lemma = pd.concat(dfs.values())
+            if len(dfs)>0:
+                df_lemma = pd.concat(dfs.values())
+            else:
+                df_lemma = pd.DataFrame([],columns=['id','word','lemma','pos','CEFR','whitespace','sentence_id',
+                                    'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
+                                    'clause_form','clause','CEFR_clause','clause_span',
+                                    'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous'])
             n_words = len(df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')])
             
             n_clausal = 0
@@ -1888,19 +2016,19 @@ class AdoTextAnalyzer(object):
                         group['span_string'] = group['phrase_span'].astype(str)
                         group = group.drop_duplicates(['span_string','sentence_id'])
                         temp_df = group.agg(len)['sentence_id']
-                        temp_dict = {'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'phrase_ambiguous':group['phrase_ambiguous'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        temp_dict = {'id':phrase_original2id.get(phrase,0),'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'phrase_ambiguous':group['phrase_ambiguous'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
                         phrase_count[phrase] = temp_dict
 
-            if n_clausal==0:
-                mean_clause = 0
+            mean_clause = n_clausal and n_clauses/n_clausal or 0
+
+            if len(clause_levels)>0:
+                level = np.percentile(clause_levels,90)
             else:
-                mean_clause = n_clauses/n_clausal
+                level = 0
 
-            level = np.percentile(clause_levels,90)
+            mean_length = len(dfs) and n_words/len(dfs) or 0
 
-            mean_length = n_words/len(dfs)
-
-            clause_stats = {'p_clausal':n_clausal/len(dfs),'mean_clause':mean_clause,'mean_length':mean_length,'level':round(level,1),'n_words':n_words}
+            clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':round(level,1),'n_words':n_words}
             
             sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type = self.count_cefr(df_lemma)
             
@@ -2155,105 +2283,4 @@ class AdoTextAnalyzer(object):
                 result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
                 self.result = result
 
-# CEFR files
-cefr_w_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_min_prim.pkl'),'rb'))
-cefr_wo_pos_min_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_min_prim.pkl'),'rb'))
-cefr_w_pos_mean_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_mean_prim.pkl'),'rb'))
-cefr_wo_pos_mean_prim = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_mean_prim.pkl'),'rb'))
 
-cefr_w_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos.pkl'),'rb'))
-cefr_wo_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos.pkl'),'rb'))
-cefr_w_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_sup.pkl'),'rb'))
-cefr_wo_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_sup.pkl'),'rb'))
-
-df_reference_words = pd.concat([pd.DataFrame(pd.Series(cefr_w_pos_min_prim)).reset_index(),pd.DataFrame(pd.Series(cefr_w_pos)).reset_index()]).drop_duplicates(['level_0','level_1'])
-df_temp = df_reference_words[df_reference_words['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
-df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
-df_reference_words = pd.concat([df_reference_words,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
-
-df_reference_words_sup = pd.DataFrame(pd.Series(cefr_w_pos_sup)).reset_index()
-df_temp = df_reference_words_sup[df_reference_words_sup['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
-df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
-df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplicates(['level_0','level_1']).reset_index(drop=True)
-
-cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
-
-df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))[['original','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
-people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
-
-
-# Lexile files
-neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/lexile_linear.pkl'), 'rb') as file:
-    linear_model = pickle.load(file)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/nsyl_high_mean_arr.npy'), 'rb') as f:
-    nsyl_high_mean_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/decode_original_arr.npy'), 'rb') as f:
-    decode_original_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/freq_high_mean_arr.npy'), 'rb') as f:
-    freq_high_mean_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_log_freq_token_no_stop_arr.npy'), 'rb') as f:
-    mean_log_freq_token_no_stop_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_log_freq_type_arr.npy'), 'rb') as f:
-    mean_log_freq_type_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/aoa_high_mean_arr.npy'), 'rb') as f:
-    aoa_high_mean_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/abstract_high_mean_arr.npy'), 'rb') as f:
-    abstract_high_mean_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_length_arr.npy'), 'rb') as f:
-    mean_length_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lev_distance_arr.npy'), 'rb') as f:
-    mean_lev_distance_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lcs2_arr.npy'), 'rb') as f:
-    mean_lcs2_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mean_lcs3_arr.npy'), 'rb') as f:
-    mean_lcs3_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/mtld_arr.npy'), 'rb') as f:
-    mtld_arr = np.load(f)
-
-with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/hdd_arr.npy'), 'rb') as f:
-    hdd_arr = np.load(f)
-
-br2am = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/br2am_2021.04.25.xlsx'))
-br2am_dict = dict(zip(br2am.british, br2am.american))
-
-df_corpus = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/Corpus_frequency_log.xlsx'))
-corpus_words = df_corpus['word'].to_list()
-corpus_freq = df_corpus['TOTAL'].to_list()
-most_freq_50 = set(stopwords.words('english'))
-
-df_aoa = pd.read_excel(os.path.join(BASE_DIR, 'files/model_files/AoA_ratings_Kuperman_et_al_BRM.xlsx'))
-# remove nan values
-df_aoa = df_aoa[~df_aoa['Rating.Mean'].isna()]
-# shortlist the 50 most frequent words
-df_aoa = df_aoa[~df_aoa.Word.isin(most_freq_50)]
-aoa_words = list(df_aoa['Word'].values)
-aoa = df_aoa['Rating.Mean'].to_list()
-
-df_mrc = pd.read_csv(os.path.join(BASE_DIR, 'files/model_files/mrc_database_cnc_img_nsyl_nphon.csv'))
-df_abstract = df_mrc[df_mrc['img'] != 0]
-# shotlist the 50 most frequent words
-df_abstract = df_abstract[~df_abstract.word.isin(most_freq_50)]
-abstract_words = df_abstract['word'].to_list()
-abstract = list(700 - df_abstract['img'].values)
-
-del br2am, df_corpus, df_aoa, df_mrc, df_abstract, df_temp
-
-
-nlp = spacy.load('en_core_web_trf')
-
-stemmers = [PorterStemmer(), LancasterStemmer()]
-lemmatizer = WordNetLemmatizer()

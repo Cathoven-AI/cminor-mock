@@ -21,7 +21,9 @@ def fine_lemmatize(x,doc,spacy):
     #    if x.orth_.lower() in no_singular.iloc[:,0].values:
     #        x.lemma_ = x.orth_.lower()
 
-    if x.lemma_ == 'an':
+    if x.lemma_ == 'the':
+        x.pos_ == 'DET'
+    elif x.lemma_ == 'an':
         x.lemma_ = 'a'
     elif x.lemma_ in set(['got','gotten']):
         x.lemma_ = 'get'
