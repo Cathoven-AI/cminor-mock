@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings
+import pickle, re, tensorflow, textstat, warnings, openai
 from textacy import text_stats
 from collections import Counter
 import Levenshtein as lev
@@ -20,6 +20,7 @@ from scipy.stats import percentileofscore
 from .lemmatizers import fine_lemmatize
 from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
+from transformers import GPT2Tokenizer
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
 # Lexile files
@@ -114,7 +115,7 @@ df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplic
 cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
 
 
-df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))
+df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases_empty.pkl'),'rb'))
 df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
 phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
 people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
@@ -128,25 +129,31 @@ nlp = spacy.load('en_core_web_trf')
 stemmers = [PorterStemmer(), LancasterStemmer()]
 lemmatizer = WordNetLemmatizer()
 
+gpt_tokenizer = GPT2Tokenizer.from_pretrained(os.path.join(BASE_DIR, "files/model_files/gpt_tokenizer"))
+
 
 class AdoTextAnalyzer(object):
-    def __init__(self):
+    def __init__(self, openai_api_key=None):
         self.text = None
         self.doc = None
         self.cefr = None
         self.readability = None
         self.catile = None
+        self.simplifier = None
+        self.openai_api_key = openai_api_key
 
     def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False):
+                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True):
         text = text.strip()
         if text!=self.text:
             self.doc = None
             self.cefr = None
             self.readability = None
             self.catile = None
+            if clear_simplifier:
+                self.simplifier = None
             self.text = text
 
         temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
@@ -174,6 +181,7 @@ class AdoTextAnalyzer(object):
             self.cefr = None
             self.readability = None
             self.catile = None
+            self.simplifier = None
             self.text = text
         if self.readability is None:
             self.readability = self.ReadabilityAnalyzer(self)
@@ -188,6 +196,7 @@ class AdoTextAnalyzer(object):
             self.cefr = None
             self.readability = None
             self.catile = None
+            self.simplifier = None
             self.text = text
         if self.catile is None:
             if self.doc is None:
@@ -198,6 +207,26 @@ class AdoTextAnalyzer(object):
             self.catile.start_analyze()
         if return_result:
             return self.catile.result
+
+    def simplify(self, text, target_level, target_adjustment=0.5, n=1, auto_retry=False, return_result=False):
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        else:
+            openai.api_key = self.openai_api_key
+        text = text.strip()
+        self.doc = None
+        self.cefr = None
+        self.readability = None
+        self.catile = None
+        self.simplifier = None
+        self.text = text
+
+        self.simplifier = self.CefrSimplifier(self)
+        self.simplifier.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, auto_retry=auto_retry)
+
+        if return_result:
+            return self.simplifier.result
 
     class CatileAnalyzer(object):
 
@@ -936,6 +965,7 @@ class AdoTextAnalyzer(object):
             #self.clause_stats = None
             #self.final_levels = None
             self.result = None
+            self.simplification = None
 
         def get_word_cefr(self,word_lemma,word_orth="",cefr_w_pos_prim=cefr_w_pos_min_prim,cefr_wo_pos_prim=cefr_wo_pos_min_prim):
             if word_orth=="":
@@ -2022,13 +2052,13 @@ class AdoTextAnalyzer(object):
             mean_clause = n_clausal and n_clauses/n_clausal or 0
 
             if len(clause_levels)>0:
-                level = np.percentile(clause_levels,90)
+                clause_level = round(min(np.percentile(clause_levels,90),6),1)
             else:
-                level = 0
+                clause_level = 0
 
             mean_length = len(dfs) and n_words/len(dfs) or 0
 
-            clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':round(level,1),'n_words':n_words}
+            clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
             
             sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type = self.count_cefr(df_lemma)
             
@@ -2055,11 +2085,13 @@ class AdoTextAnalyzer(object):
                     vocabulary_level =stats_dict["level"]["ninety_five"][0]
                 else:
                     vocabulary_level = stats_dict["level"]["fit_curve"][0]
+                
+                
+                
+                average_level = (vocabulary_level+tense_level+clause_level)/3
+                general_level = max([vocabulary_level,tense_level,average_level,clause_level-0.5])
 
-                average_level = (vocabulary_level+tense_level+min(clause_stats['level'],6))/3
-                general_level = max([vocabulary_level,tense_level,average_level])
-
-                final_levels = {'general_level':round(general_level,1),'vocabulary_level':round(vocabulary_level,1),'tense_level':round(tense_level,1),'clause_level':round(level,1)}
+                final_levels = {'general_level':round(general_level,1),'vocabulary_level':round(vocabulary_level,1),'tense_level':round(tense_level,1),'clause_level':clause_level}
 
             result_dict = {}
             if self.__settings['return_sentences']:
@@ -2283,4 +2315,91 @@ class AdoTextAnalyzer(object):
                 result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
                 self.result = result
 
+    class CefrSimplifier(object):
 
+        def __init__(self, outer):
+            self.shared_object = outer
+            self.result = None
+
+        def start_simplify(self, text, target_level, target_adjustment=0.5, n=1, auto_retry=False):
+            n_tokens = len(gpt_tokenizer.encode(text))
+
+            n_pieces = 1
+            while n_tokens/n_pieces>1500:
+                n_pieces += 1
+            mean_piece_length = n_tokens/n_pieces
+                
+            pieces = []
+            if n_pieces>1:
+                result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                
+                piece = ''
+                for _,v in result['sentences'].items():
+                    for i in range(len(v['whitespace'])):
+                        piece += v['word'][i]+' '*v['whitespace'][i]
+                    if len(gpt_tokenizer.encode(piece))>=mean_piece_length:
+                        pieces.append(piece)
+                        piece = ''
+                if piece!='':
+                    pieces.append(piece)
+                
+            else:
+                result = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                pieces.append(text)
+
+            before_levels = result['final_levels']
+            
+            simplifications = []
+            for piece in pieces:
+                candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n)
+                min_difference = 100
+                for candidate in candidates:
+                    result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                    return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                    return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                    difference = result['final_levels']['general_level']-(target_level+target_adjustment)
+                    if difference==0:
+                        simplification = candidate
+                        after_levels = result['final_levels']
+                        break
+                    elif abs(difference)<min_difference or abs(difference)==min_difference and difference>0:
+                        simplification = candidate
+                        after_levels = result['final_levels']
+                        min_difference = abs(difference)
+                simplifications.append(simplification)
+                
+            after_text = ''.join(simplifications)
+            
+            if n_pieces>1:
+                after_levels = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
+                
+            if auto_retry and int(after_levels['general_level'])!=target_level:
+                return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, auto_retry=False)
+
+            self.result = {'simplification':after_text, 'before':before_levels, 'after': after_levels}
+
+        def get_simplification(self, text, target_level, target_adjustment=0.5, n=1):
+            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
+            min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
+
+            if target_level>0:
+                levels = [int2cefr[i] for i in range(target_level+1)]
+                levels = ', '.join(levels[:-1]) + f' and {levels[-1] }'
+                completion = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo", n=n,
+                messages=[{"role": "user", "content": f"Rewrite this passage to make it simpler. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words.\nPassage: " + text}]
+                )
+            else:
+                completion = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo", n=n,
+                messages=[{"role": "user", "content": f"Rewrite this passage to make it simpler. Use only words at CEFR A1 level. Write sentences with less than {max_length} words.\nPassage: " + text}]
+                )
+
+            return [x['message']['content'].strip() for x in completion['choices']]
