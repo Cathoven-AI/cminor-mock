@@ -1907,7 +1907,7 @@ class AdoTextAnalyzer(object):
                 clause_level = min(np.nanmean([level_by_length,level_by_clause]),6)
                 clause_levels.append(clause_level)
 
-                if self.__settings['return_sentences'] or self.__settings['return_phrase_count']:
+                if self.__settings['return_phrase_count']:
                     df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','sentence_id']].dropna()
                     if len(df2)>0:
                         filter_ = []
@@ -1951,7 +1951,10 @@ class AdoTextAnalyzer(object):
                     level_dict['CEFR_vocabulary'] = self.ninety_five(cumsum_series)
                     level_dict['CEFR_clause'] = round(clause_level,1)
 
-                    sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,**phrase_dict}
+                    if self.__settings['return_phrase_count']:
+                        sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,**phrase_dict}
+                    else:
+                        sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict}
                 
             if self.__settings['return_wordlists']:
                 wordlists = {}
@@ -2372,7 +2375,7 @@ class AdoTextAnalyzer(object):
                         min_difference = abs(difference)
                 simplifications.append(simplification)
                 
-            after_text = ''.join(simplifications)
+            after_text = ' '.join(simplifications)
             
             if n_pieces>1:
                 after_levels = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
