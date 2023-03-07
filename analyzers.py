@@ -2382,16 +2382,16 @@ class AdoTextAnalyzer(object):
             if auto_retry and int(after_levels['general_level'])!=target_level:
                 return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=False)
 
-            self.result = {'simplification':after_text, 'before':before_levels, 'after': after_levels}
+            self.result = {'simplified':after_text, 'before':before_levels, 'after': after_levels}
 
         def get_simplification(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False):
             int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
             max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-            min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
+            min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
 
             if target_level>0:
                 levels = [int2cefr[i] for i in range(target_level+1)]
-                levels = ', '.join(levels[:-1]) + f' and {levels[-1] }'
+                levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
                 completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
                 messages=[{"role": "user", "content": f"Rewrite this passage {'sentence by sentence '*by_sentence}to make it simpler. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words.\nPassage: " + text}]
