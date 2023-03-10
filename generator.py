@@ -30,7 +30,7 @@ class AdoQuestionGenerator(object):
                 questions = ast.literal_eval(completion['choices'][0]['message']['content'].strip())
             except Exception as e:
                 if auto_retry:
-                    return generate_questions(text, n=n, kind=kind, auto_retry=False)
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=False)
                 else:
                     raise e
         return questions
