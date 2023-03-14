@@ -2332,7 +2332,10 @@ class AdoTextAnalyzer(object):
                 n_pieces += 1
             mean_piece_length = n_tokens/n_pieces
                 
-            n = min(n, int((4000-mean_piece_length)/(mean_piece_length*0.75)))
+            if up:
+                n = min(n, int((4000-mean_piece_length)/(mean_piece_length*0.75)))
+            else:
+                n = min(n, int((4000-mean_piece_length)/(mean_piece_length*1.25)))
 
             pieces = []
             if n_pieces>1:
