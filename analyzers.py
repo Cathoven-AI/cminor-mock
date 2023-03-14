@@ -208,7 +208,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.catile.result
 
-    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, return_result=False):
+    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=False):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -223,7 +223,7 @@ class AdoTextAnalyzer(object):
         self.text = text
 
         self.simplifier = self.CefrSimplifier(self)
-        self.simplifier.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=auto_retry)
+        self.simplifier.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=auto_retry, up=up)
 
         if return_result:
             return self.simplifier.result
@@ -2324,7 +2324,7 @@ class AdoTextAnalyzer(object):
             self.shared_object = outer
             self.result = None
 
-        def start_simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False):
+        def start_simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False):
             n_tokens = len(gpt_tokenizer.encode(text))
 
             n_pieces = 1
@@ -2361,7 +2361,7 @@ class AdoTextAnalyzer(object):
             simplifications = []
             for piece in pieces:
                 try:
-                    candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence)
+                    candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, up=up)
                 except Exception as e:
                     return {'error':e.__class__.__name__,'detail':str(e)}
                 min_difference = 100
@@ -2388,27 +2388,37 @@ class AdoTextAnalyzer(object):
                                 return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
                 
             if auto_retry and int(after_levels['general_level'])!=target_level:
-                return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=False)
+                return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=False, up=up)
 
             self.result = {'simplified':after_text, 'before':before_levels, 'after': after_levels}
 
-        def get_simplification(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False):
-            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-            max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-            min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
+        def get_simplification(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, up=False):
+            if up:
+                int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+                max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
+                min_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
 
-            if target_level>0:
-                levels = [int2cefr[i] for i in range(target_level+1)]
-                levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
                 completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. \nPassage: " + text}]
+                messages=[{"role": "user", "content": f"Rewrite this passage to make it more complex. Use mainly words at CEFR {int2cefr[target_level]} levels. Write sentences with {min_length} to {max_length} words.\nPassage: " + text}]
                 )
             else:
-                completion = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.\nPassage: " + text}]
-                )
+                int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
+                min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
+
+                if target_level>0:
+                    levels = [int2cefr[i] for i in range(target_level+1)]
+                    levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
+                    completion = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo", n=n,
+                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. \nPassage: " + text}]
+                    )
+                else:
+                    completion = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo", n=n,
+                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.\nPassage: " + text}]
+                    )
 
             simplifications = []
             for x in completion['choices']:
