@@ -2332,6 +2332,8 @@ class AdoTextAnalyzer(object):
                 n_pieces += 1
             mean_piece_length = n_tokens/n_pieces
                 
+            n = min(n, int((4000-mean_piece_length)/(mean_piece_length*0.75)))
+
             pieces = []
             if n_pieces>1:
                 result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
@@ -2358,7 +2360,10 @@ class AdoTextAnalyzer(object):
             
             simplifications = []
             for piece in pieces:
-                candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence)
+                try:
+                    candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence)
+                except Exception as e:
+                    return {'error':e.__class__.__name__,'detail':str(e)}
                 min_difference = 100
                 for candidate in candidates:
                     result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
@@ -2397,12 +2402,20 @@ class AdoTextAnalyzer(object):
                 levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
                 completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage {'sentence by sentence '*by_sentence}to make it simpler. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words.\nPassage: " + text}]
+                messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. \nPassage: " + text}]
                 )
             else:
                 completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage {'sentence by sentence '*by_sentence}to make it simpler. Use only words at CEFR A1 level. Write sentences with less than {max_length} words.\nPassage: " + text}]
+                messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.\nPassage: " + text}]
                 )
 
-            return [x['message']['content'].strip() for x in completion['choices']]
+            simplifications = []
+            for x in completion['choices']:
+                x = x['message']['content'].strip()
+                if x.lower().startswith("simplified: "):
+                    x = x[12:].strip()
+                elif x.lower().startswith("simplified version: "):
+                    x = x[20:].strip()
+                simplifications.append(x)
+            return simplifications
