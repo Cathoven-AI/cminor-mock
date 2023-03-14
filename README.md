@@ -1,4 +1,5 @@
 A collection of computational linguistic functions ranging from finding degree of decodebility to cross sentence similarity.
+Now it also includes all the analysers.
 
 # Changelog
 ### Version 1.5.9
