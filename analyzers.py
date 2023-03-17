@@ -147,7 +147,7 @@ class AdoTextAnalyzer(object):
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True):
-        text = text.strip()
+        text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
             self.cefr = None
@@ -177,7 +177,7 @@ class AdoTextAnalyzer(object):
             return self.cefr.result
 
     def analyze_readability(self,text,language='en',return_result=False):
-        text = text.strip()
+        text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
             self.cefr = None
@@ -193,7 +193,7 @@ class AdoTextAnalyzer(object):
             return self.readability.result
 
     def analyze_catile(self,text,return_result=False):
-        text = text.strip()
+        text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
             self.cefr = None
@@ -218,7 +218,7 @@ class AdoTextAnalyzer(object):
             return None
         else:
             openai.api_key = self.openai_api_key
-        text = text.strip()
+        text = self.clean_text(text)
         self.doc = None
         self.cefr = None
         self.readability = None
@@ -239,7 +239,7 @@ class AdoTextAnalyzer(object):
             return None
         else:
             openai.api_key = self.openai_api_key
-        text = text.strip()
+        text = self.clean_text(text)
         self.doc = None
         self.cefr = None
         self.readability = None
@@ -254,6 +254,8 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.adaptor.result
 
+    def clean_text(self, text):
+        return text.replace("\u00A0", " ").replace('\xa0',' ').strip()
 
     class CatileAnalyzer(object):
 
@@ -1022,7 +1024,7 @@ class AdoTextAnalyzer(object):
             
             sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
             opcodes = sm.get_opcodes()
-
+            
             filter_ = []
             for opcode in opcodes:
                 if opcode[0] == 'replace':
@@ -1058,7 +1060,7 @@ class AdoTextAnalyzer(object):
                 print(opcodes)
             if operations_count['equal']+operations_count['replace']!=length or operations_count['equal']<=length/2 or 'delete' in operations_count:
                 return None, 0
-
+            
             # 1: only one
             # 2: , or none
             # 3: something noun-like
@@ -1888,7 +1890,7 @@ class AdoTextAnalyzer(object):
 
                                 sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
 
-                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'].split(' '))))<len(phrase_parts):
+                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'].split(' '))))<len(set(sum(phrase_parts,[]))):
                                     continue
                                 phrase_span_temp, confidence_temp = self.get_phrase(phrase_parts, row['pos'].split(' '), sentence_parts, start_index, row['followed_by'])
 
