@@ -1887,7 +1887,8 @@ class AdoTextAnalyzer(object):
                                 #    max_phrase_length = phrase_length
 
                                 sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
-                                if len(phrase_parts)>len(sentence_parts):
+
+                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'].split(' '))))<len(phrase_parts):
                                     continue
                                 phrase_span_temp, confidence_temp = self.get_phrase(phrase_parts, row['pos'].split(' '), sentence_parts, start_index, row['followed_by'])
 
