@@ -16,7 +16,7 @@ class AdoQuestionGenerator(object):
 
         json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0}]'''
 
-        content = f'''Generate ten multiple choice questions for this text. {n-n_why} of them are questions about main ideas and details. The other {n_why} are "why" questions. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. Return the results as "question", "choices", and "answer_index" in json format like this: {json_format}. The answer_index ranges from 0 to 3.
+        content = f'''Generate {n} multiple choice questions for this text. {n-n_why} of them are questions about main ideas and details. The other {n_why} are "why" questions. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. Return the results as "question", "choices", and "answer_index" in json format like this: {json_format}. The answer_index ranges from 0 to 3.
 
         Text: {text}'''
         try:
