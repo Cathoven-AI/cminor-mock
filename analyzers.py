@@ -1070,60 +1070,67 @@ class AdoTextAnalyzer(object):
                 if followed_by[i-1]=="0":
                     if opcodes[matching_blocks[i][1]-1][0] not in set(['equal','replace']):
                         return None, 0
-                elif followed_by[i-1]=="1":
-                    if n_insertions!=1:
-                        confidence -= abs(1-n_insertions)
-                elif followed_by[i-1]==",":
-                    if n_insertions>1:
-                        confidence -= abs(1-n_insertions)
-                    elif n_insertions==1 and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].pos_ != 'PUNCT':
-                        return None, 0
-                elif followed_by[i-1] in set(['p','t']):
-                    person = False
-                    thing = True
-                    for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
-                        if x.pos_=="PRON":
-                            if x.orth_.lower() == 'them':
-                                person = True
-                                break
-                            elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
-                                thing = False
-                                person = True
-                                break
-                        elif x.pos_=='NOUN':
-                            if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
-                                thing = False
-                                person = True
-                                break
-                        elif x.head.pos_=='NOUN' and matching_blocks[i-1][1]+sentence_start_index+1<x.head.i<matching_blocks[i][1]+sentence_start_index:
-                            if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
-                                thing = False
-                                person = True
-                                break
-                    if followed_by[i-1]=='p' and not person:
-                        confidence -= 1
-                    elif followed_by[i-1]=='t' and not thing:
-                        confidence -= 0.5
-                elif followed_by[i-1]=="a":
-                    if any([x.pos_ in set(['VERB','AUX']) for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]]):
-                        return None, 0
-                    if n_insertions==0:
-                        confidence -= 1
-                    elif n_insertions==1 and self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ == 'DET':
-                        return None, 0
-                elif followed_by[i-1]=="s":
-                    is_possessive = False
-                    for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
-                        if x.pos_ in set(['VERB','AUX']):
+                else:
+                    if self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index].pos_=="VERB":
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.tag_ == "RP":
+                                return None, 0
+                    
+                    if followed_by[i-1]=="1":
+                        if n_insertions!=1:
+                            confidence -= abs(1-n_insertions)
+                    elif followed_by[i-1]==",":
+                        if n_insertions>1:
+                            confidence -= abs(1-n_insertions)
+                        elif n_insertions==1 and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].pos_ != 'PUNCT':
                             return None, 0
-                        elif x.lemma_ in set(["'s", "'", "my", "your", "his", "her", "our", "their"]):
-                            is_possessive = True
-                            break
-                    if not is_possessive:
-                        confidence -= 1
-                elif followed_by[i-1]=="n":
-                    if self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ != 'NUM':
-                        confidence -= 1
+                    elif followed_by[i-1] in set(['p','t']):
+                        person = False
+                        thing = True
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_=="PRON":
+                                if x.orth_.lower() == 'them':
+                                    person = True
+                                    break
+                                elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
+                                    thing = False
+                                    person = True
+                                    break
+                            elif x.pos_=='NOUN':
+                                if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
+                                    thing = False
+                                    person = True
+                                    break
+                            elif x.head.pos_=='NOUN' and matching_blocks[i-1][1]+sentence_start_index+1<x.head.i<matching_blocks[i][1]+sentence_start_index:
+                                if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
+                                    thing = False
+                                    person = True
+                                    break
+                        if followed_by[i-1]=='p' and not person:
+                            confidence -= 1
+                        elif followed_by[i-1]=='t' and not thing:
+                            confidence -= 0.5
+                    elif followed_by[i-1]=="a":
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_ in set(['VERB','AUX']):
+                                return None, 0
+                        if n_insertions==0:
+                            confidence -= 1
+                        elif n_insertions==1 and self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ == 'DET':
+                            return None, 0
+                    elif followed_by[i-1]=="s":
+                        is_possessive = False
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_ in set(['VERB','AUX']):
+                                return None, 0
+                            elif x.lemma_ in set(["'s", "'", "my", "your", "his", "her", "our", "their"]):
+                                is_possessive = True
+                                break
+                        if not is_possessive:
+                            confidence -= 1
+                    elif followed_by[i-1]=="n":
+                        if self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ != 'NUM':
+                            confidence -= 1
 
                 if n_insertions==0 and followed_by[i-1] in set(['a','p','t']) and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].tag_!='VBN':
                     confidence -= 1
@@ -1137,7 +1144,7 @@ class AdoTextAnalyzer(object):
 
             phrase_start_index = span[0]+sentence_start_index
             phrase_end_index = span[-1]+sentence_start_index
-            followed_by_something = phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i and self.shared_object.doc[phrase_end_index+1].lemma_.isalnum() and self.shared_object.doc[phrase_end_index+1].pos_!='CONJ'
+            followed_by_something = phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i and self.shared_object.doc[phrase_end_index+1].lemma_.isalnum() and not (self.shared_object.doc[phrase_end_index+1].tag_=='CC' and set(phrase_pos).intersection(set(['VERB','AUX'])))
             if followed_by[-1]=='0':
                 if followed_by_something:
                     confidence -= 1
