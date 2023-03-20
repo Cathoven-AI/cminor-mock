@@ -1306,8 +1306,8 @@ class AdoTextAnalyzer(object):
         def get_aux(self,x):
             tense = []
             id_range = []
-            if x.dep_=='xcomp' and list(x.children)[0].lemma_!='to' and list(x.children)[0].pos_!='PART':
-                return tense, id_range
+            #if x.dep_=='xcomp' and list(x.children)[0].lemma_!='to' and list(x.children)[0].pos_!='PART':
+            #    return tense, id_range
             for child in x.children:
                 if child.dep_ in set(['aux','auxpass']) and child.i<x.i:# and child.i<x_i
                     if child.orth_ in set(['…','...',';','-','—','–',':']):
