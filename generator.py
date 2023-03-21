@@ -36,7 +36,7 @@ class AdoQuestionGenerator(object):
                 )
             except Exception as e:
                 return {'error':e.__class__.__name__,'detail':str(e)}
-        print(completion)
+
         try:
             questions = json.loads(completion['choices'][0]['message']['content'].strip())
         except:
