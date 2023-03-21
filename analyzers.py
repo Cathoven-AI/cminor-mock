@@ -2625,8 +2625,6 @@ class AdoTextAnalyzer(object):
                 else:
                     return []
 
-            print(prompt+"\nPassage: " + text)
-            
             completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
                 messages=[{"role": "user", "content": prompt+"\nPassage: " + text}]
