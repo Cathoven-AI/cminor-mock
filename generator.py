@@ -36,7 +36,7 @@ class AdoQuestionGenerator(object):
                 )
             except Exception as e:
                 return {'error':e.__class__.__name__,'detail':str(e)}
-        
+        print(completion)
         try:
             questions = json.loads(completion['choices'][0]['message']['content'].strip())
         except:
@@ -46,7 +46,7 @@ class AdoQuestionGenerator(object):
                 if auto_retry:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=False, override_messages=[{"role": "system", "content": '''You are an English teacher creating reading comprehension questions for an exam.'''},
                                                                                                               {"role": "user", "content": content},
-                                                                                                              {"role": completion['choices'][0]['role'], "content": completion['choices'][0]['message']},
+                                                                                                              {"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
                                                                                                               {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them in Python dictionary format like this example: {json_format}"}])
                 else:
                     return {'error':e.__class__.__name__,'detail':str(e)+" The bot didn't return the questions in Python dictionary format."}
