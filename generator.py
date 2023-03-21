@@ -12,13 +12,14 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
+        n_why = n//2
         json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0}]'''
         content = f'''Generate {n} multiple choice questions for this text. {n-n_why} of them are questions about main ideas and details. The other {n_why} are "why" questions. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. Return the results as "question", "choices", and "answer_index" as a Python dictionary that can be parsed by ast.literal_eval like this: {json_format}. The answer_index ranges from 0 to 3.
 
         Text: {text}'''
 
         if override_messages is None:
-            n_why = n//2
+            
 
             try:
                 completion = openai.ChatCompletion.create(
