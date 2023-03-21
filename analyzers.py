@@ -117,7 +117,7 @@ cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'fil
 ignore_phrases = set(["risk of (some inclement weather)"])
 df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))
 df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','original_to_display','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
-df_phrases[df_phrases['original'].apply(lambda x: x not in ignore_phrases)]
+df_phrases = df_phrases[df_phrases['original'].apply(lambda x: x not in ignore_phrases)]
 phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
 people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
 
