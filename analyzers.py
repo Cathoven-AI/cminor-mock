@@ -2397,7 +2397,8 @@ class AdoTextAnalyzer(object):
                 pieces.append(text)
 
             before_levels = result['final_levels']
-            
+            after_levels = None
+
             simplifications = []
             for piece in pieces:
                 try:
@@ -2427,6 +2428,8 @@ class AdoTextAnalyzer(object):
                                 return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                                 return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
                 
+            if after_levels is None:
+                after_levels = before_levels
             if auto_retry and int(after_levels['general_level'])!=target_level:
                 return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=False, up=up)
 
@@ -2508,8 +2511,9 @@ class AdoTextAnalyzer(object):
                 pieces.append(text)
 
             before_levels = result['final_levels']
-            
+            after_levels = None
             adaptations = []
+
             for piece in pieces:
                 if int(before_levels['vocabulary_level'])>target_level:
                     change_vocabulary = -1
@@ -2527,6 +2531,10 @@ class AdoTextAnalyzer(object):
                 else:
                     change_clause = 0
                     new_n = n
+
+                if change_vocabulary==0 and change_clause==0 and int(before_levels['general_level'])<int(target_level):
+                    change_vocabulary = 1
+                    change_clause = 1
 
                 try:
                     if change_vocabulary==0 and change_clause==0:
@@ -2579,6 +2587,9 @@ class AdoTextAnalyzer(object):
                                 return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                                 return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
                 
+            if after_levels is None:
+                after_levels = before_levels
+
             if auto_retry and int(after_levels['general_level'])!=target_level:
                 return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, auto_retry=False)
 
@@ -2614,9 +2625,11 @@ class AdoTextAnalyzer(object):
                 else:
                     return []
 
+            print(prompt+"\nPassage: " + text)
+            
             completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo", n=n,
-            messages=[{"role": "user", "content": prompt+"\nPassage: " + text}]
+                model="gpt-3.5-turbo", n=n,
+                messages=[{"role": "user", "content": prompt+"\nPassage: " + text}]
             )
 
             adaptations = []
@@ -2628,3 +2641,4 @@ class AdoTextAnalyzer(object):
                     x = x[20:].strip()
                 adaptations.append(x)
             return adaptations
+        
