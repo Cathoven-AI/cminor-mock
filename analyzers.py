@@ -114,9 +114,10 @@ df_reference_words_sup = pd.concat([df_reference_words_sup,df_temp]).drop_duplic
 
 cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr_word_model.h5'))
 
-
+ignore_phrases = set(["risk of (some inclement weather)"])
 df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))
 df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','original_to_display','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
+df_phrases[df_phrases['original'].apply(lambda x: x not in ignore_phrases)]
 phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
 people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
 
@@ -1797,25 +1798,25 @@ class AdoTextAnalyzer(object):
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                     elif not bool(re.match(".*[A-Za-z]+",x.lemma_)):
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':'PUNCT','CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                     else:
                         if x.pos_ == 'INTJ' and self.__settings['intj_as_lowest']==True:
                             rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                         'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                         'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                        'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
+                                        'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                             continue
                         elif x.pos_ == 'PROPN':
                             if self.__settings['propn_as_lowest']==True:
                                 rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                             'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                             'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                            'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True})
+                                            'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                                 continue
                             else:
                                 x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
@@ -1878,6 +1879,7 @@ class AdoTextAnalyzer(object):
                         phrase_span = None
                         max_confidence = 0
                         ambiguous = True
+                        is_idiom = True
                         if x.pos_ not in set(["DET","PART"]) and x.lemma_ in df_phrases['word'].values:
                             #max_phrase_length = 0
                             max_clean_length = 0
@@ -1907,12 +1909,12 @@ class AdoTextAnalyzer(object):
                                     max_clean_length = len(phrase_parts)
                                     max_confidence = confidence_temp
                                     ambiguous = row['ambiguous']
-                                    #ambiguous=False
+                                    is_idiom = row['is_idiom']
                                     
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
                                     'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
-                                    'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous})
+                                    'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
 
                 df_lemma = pd.DataFrame(rows)
                 if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
@@ -1925,7 +1927,7 @@ class AdoTextAnalyzer(object):
                 df_lemma = pd.DataFrame([],columns=['id','word','lemma','pos','CEFR','whitespace','sentence_id',
                                     'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
                                     'clause_form','clause','CEFR_clause','clause_span',
-                                    'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous'])
+                                    'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom'])
             n_words = len(df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')])
             
             n_clausal = 0
@@ -1945,7 +1947,7 @@ class AdoTextAnalyzer(object):
                 clause_levels.append(clause_level)
 
                 if self.__settings['return_phrase_count']:
-                    df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','sentence_id']].dropna()
+                    df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom','sentence_id']].dropna()
                     if len(df2)>0:
                         filter_ = []
                         spans = df2['phrase_span'].values
@@ -1958,9 +1960,9 @@ class AdoTextAnalyzer(object):
                             filter_.append(unique)
                         df2 = df2[filter_]
                         dfs_phrase_count.append(df2)
-                        phrase_dict = df2[['phrase','phrase_span','phrase_confidence','phrase_ambiguous']].to_dict(orient='list')
+                        phrase_dict = df2[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom']].to_dict(orient='list')
                     else:
-                        phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[]}
+                        phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[],'phrase_is_idiom':[]}
 
                 if self.__settings['return_sentences']:
                     lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR']].to_dict(orient='list')
@@ -2086,7 +2088,7 @@ class AdoTextAnalyzer(object):
                         group['span_string'] = group['phrase_span'].astype(str)
                         group = group.drop_duplicates(['span_string','sentence_id'])
                         temp_df = group.agg(len)['sentence_id']
-                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':group['phrase_ambiguous'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':group['phrase_ambiguous'].tolist()[0],'phrase_is_idiom':group['phrase_is_idiom'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
                         phrase_count[phrase] = temp_dict
 
             mean_clause = n_clausal and n_clauses/n_clausal or 0
