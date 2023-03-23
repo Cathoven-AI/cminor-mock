@@ -1074,9 +1074,8 @@ class AdoTextAnalyzer(object):
                 else:
                     if self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index].pos_=="VERB":
                         for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
-                            if x.tag_ == "RP":
+                            if x.tag_ in set(['RP','IN']):
                                 return None, 0
-                    
                     if followed_by[i-1]=="1":
                         if n_insertions!=1:
                             confidence -= abs(1-n_insertions)
