@@ -20,23 +20,26 @@ class AdoQuestionGenerator(object):
         Text: {text}'''
 
         messages = [{"role": "system", "content": '''You are an English teacher who creates reading comprehension questions for an exam in Python code.'''},{"role": "user", "content": content}]
+        
         if override_messages is None:
-            try:
-                completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=messages
-                )
-            except Exception as e:
-                return {'error':e.__class__.__name__,'detail':str(e)}
+            messages_to_send = messages
         else:
+            messages_to_send = override_messages
+
+        n_self_try = 3
+        while n_self_try>0:
             try:
                 completion = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo",
-                    messages = override_messages
+                    messages=messages_to_send
                 )
+                break
             except Exception as e:
-                return {'error':e.__class__.__name__,'detail':str(e)}
-            
+                n_self_try -= 1
+                if n_self_try==0:
+                    return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                print(e, "Retring",3-n_self_try)
+
         response = completion['choices'][0]['message']['content'].strip()
         questions = self.parse_questions(response)
 

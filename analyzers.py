@@ -1074,9 +1074,8 @@ class AdoTextAnalyzer(object):
                 else:
                     if self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index].pos_=="VERB":
                         for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
-                            if x.tag_ == "RP":
+                            if x.tag_ in set(['RP','IN']):
                                 return None, 0
-                    
                     if followed_by[i-1]=="1":
                         if n_insertions!=1:
                             confidence -= abs(1-n_insertions)
@@ -2538,17 +2537,23 @@ class AdoTextAnalyzer(object):
                     change_vocabulary = 1
                     change_clause = 1
 
-                try:
-                    if change_vocabulary==0 and change_clause==0:
-                        adaptations.append(piece)
-                        continue
-                    else:
-                        candidates = self.get_adaptation(
-                            piece, target_level=target_level, target_adjustment=target_adjustment, n=new_n, 
-                            change_vocabulary=change_vocabulary, change_clause=change_clause)
-                except Exception as e:
-                    self.result = {'error':e.__class__.__name__,'detail':str(e)}
-                    return
+                if change_vocabulary==0 and change_clause==0:
+                    adaptations.append(piece)
+                    continue
+                else:
+                    n_self_try = 3
+                    while n_self_try>0:
+                        try:
+                            candidates = self.get_adaptation(
+                                piece, target_level=target_level, target_adjustment=target_adjustment, n=new_n, 
+                                change_vocabulary=change_vocabulary, change_clause=change_clause)
+                            break
+                        except Exception as e:
+                            n_self_try -= 1
+                            if n_self_try==0:
+                                self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                                return
+                            print(e, "Retring",3-n_self_try)
 
                 min_difference = 100
                 min_difference_std = -1
