@@ -116,7 +116,7 @@ cefr_word_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'fil
 
 ignore_phrases = set(["risk of (some inclement weather)"])
 df_phrases = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/phrases.pkl'),'rb'))
-df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','original_to_display','clean','followed_by','lemma','pos','word','is_idiom','ambiguous','phrase_parts']]
+df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2)&(df_phrases['level']<=1)&df_phrases['word'].apply(lambda x: x in set(['have','and','do','it','or','on','so','at','you','after','in','down','i','up','that','to'])))][['id','original','original_to_display','clean','followed_by','lemma','pos','dep','word','is_idiom','ambiguous','phrase_parts']]
 df_phrases = df_phrases[df_phrases['original'].apply(lambda x: x not in ignore_phrases)]
 phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
 people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
@@ -1019,9 +1019,10 @@ class AdoTextAnalyzer(object):
                                             level = max(2,cefr_wo_pos_sup.get(word_orth[0],6))
             return level
 
-        def get_phrase(self, phrase, phrase_pos, sentence, sentence_start_index, followed_by, window_size=3):
-            
+        def get_phrase(self, phrase, phrase_pos, phrase_dep, sentence, sentence_start_index, followed_by, window_size=3):
+
             confidence = length = len(phrase)
+            ambiguous = False
             
             sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
             opcodes = sm.get_opcodes()
@@ -1030,7 +1031,7 @@ class AdoTextAnalyzer(object):
             for opcode in opcodes:
                 if opcode[0] == 'replace':
                     if not (phrase_pos[opcode[1]]==self.shared_object.doc[opcode[3]+sentence_start_index].pos_ and phrase_pos[opcode[1]] in set(['PRON','DET'])):
-                        return None, 0
+                        return None, 0, ambiguous
                     else:
                         filter_.append(True)
                     if any([x in set(['oneself','yourself']) for x in phrase[opcode[1]]]) and any([x.endswith('self') or x.endswith('selves') for x in set(sentence[opcode[3]])]):
@@ -1057,25 +1058,24 @@ class AdoTextAnalyzer(object):
             
             operations = np.array(opcodes).T[0]
             operations_count = Counter(operations)
-            if ['outa'] in phrase:
-                print(opcodes)
+
             if operations_count['equal']+operations_count['replace']!=length or operations_count['equal']<=length/2 or 'delete' in operations_count:
-                return None, 0
+                return None, 0, ambiguous
             
-            # 1: only one
-            # 2: , or none
-            # 3: something noun-like
-            # 4: something not VERB
             for i in range(1,len(matching_blocks)):
+                word_in_sentence = self.shared_object.doc[matching_blocks[i][1]+sentence_start_index]
+                if word_in_sentence.pos_ in set(["ADP","ADV"]) and phrase_dep is not None and phrase_dep[matching_blocks[i][0]]=='prt' and word_in_sentence.dep_!='prt':
+                    ambiguous = True
+
                 n_insertions = matching_blocks[i][1]-matching_blocks[i-1][1]-1
                 if followed_by[i-1]=="0":
                     if opcodes[matching_blocks[i][1]-1][0] not in set(['equal','replace']):
-                        return None, 0
+                        return None, 0, ambiguous
                 else:
                     if self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index].pos_=="VERB":
                         for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
                             if x.tag_ in set(['RP','IN']):
-                                return None, 0
+                                return None, 0, ambiguous
                     if followed_by[i-1]=="1":
                         if n_insertions!=1:
                             confidence -= abs(1-n_insertions)
@@ -1083,7 +1083,7 @@ class AdoTextAnalyzer(object):
                         if n_insertions>1:
                             confidence -= abs(1-n_insertions)
                         elif n_insertions==1 and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].pos_ != 'PUNCT':
-                            return None, 0
+                            return None, 0, ambiguous
                     elif followed_by[i-1] in set(['p','t']):
                         person = False
                         thing = True
@@ -1113,16 +1113,16 @@ class AdoTextAnalyzer(object):
                     elif followed_by[i-1]=="a":
                         for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
                             if x.pos_ in set(['VERB','AUX']):
-                                return None, 0
+                                return None, 0, ambiguous
                         if n_insertions==0:
                             confidence -= 1
                         elif n_insertions==1 and self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ == 'DET':
-                            return None, 0
+                            return None, 0, ambiguous
                     elif followed_by[i-1]=="s":
                         is_possessive = False
                         for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
                             if x.pos_ in set(['VERB','AUX']):
-                                return None, 0
+                                return None, 0, ambiguous
                             elif x.lemma_ in set(["'s", "'", "my", "your", "his", "her", "our", "their"]):
                                 is_possessive = True
                                 break
@@ -1138,7 +1138,7 @@ class AdoTextAnalyzer(object):
                     confidence -= n_insertions-window_size
             
             if confidence<=0:
-                return None, 0
+                return None, 0, ambiguous
             
             span = list(np.array(matching_blocks)[:,1])
 
@@ -1179,9 +1179,9 @@ class AdoTextAnalyzer(object):
                         confidence -= 1
 
             if confidence<=0:
-                return None, 0
+                return None, 0, ambiguous
 
-            return span, confidence/len(phrase)
+            return span, confidence/len(phrase), ambiguous
 
         def get_sentence_parts(self, x, followed_by, window_size=3):
             followed_by = followed_by.split('_')[0]
@@ -1898,18 +1898,21 @@ class AdoTextAnalyzer(object):
 
                                 sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
 
-                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'].split(' '))))<len(set(sum(phrase_parts,[]))):
+                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<len(set(sum(phrase_parts,[]))):
                                     continue
-                                phrase_span_temp, confidence_temp = self.get_phrase(phrase_parts, row['pos'].split(' '), sentence_parts, start_index, row['followed_by'])
-
-                                if phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or confidence_temp==max_confidence and len(phrase_parts)>max_clean_length):
+                                phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
+                                if (phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or 
+                                                                                            confidence_temp==max_confidence and (len(phrase_parts)>max_clean_length or 
+                                                                                                                                 confidence_temp==1 and row['pos'][-1]!='ADP' and len(phrase_parts)==max_clean_length))):
                                     phrase_span = list(np.array(phrase_span_temp) + start_index)
                                     phrase = row['original_to_display']
                                     max_clean_length = len(phrase_parts)
                                     max_confidence = confidence_temp
-                                    ambiguous = row['ambiguous']
+                                    ambiguous = row['ambiguous'] or prt_ambiguous
                                     is_idiom = row['is_idiom']
                                     
+
+
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
                                     'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
@@ -1953,9 +1956,14 @@ class AdoTextAnalyzer(object):
                         for i in range(len(spans)):
                             unique = True
                             for j in range(len(spans)):
-                                if i!=j and spans[i][0]>=spans[j][0] and spans[i][-1]<=spans[j][-1]:
-                                    unique = False
-                                    break
+                                if i!=j:
+                                    if spans[i][0]>=spans[j][0] and spans[i][-1]<=spans[j][-1]:
+                                        if not(len(spans[i])==len(spans[j]) and spans[i][0]==spans[j][0] and spans[i][-1]<spans[j][-1]):
+                                            unique = False
+                                            break
+                                    elif len(spans[i])==len(spans[j]) and spans[i][0]==spans[j][0] and spans[i][-1]>spans[j][-1]:
+                                        unique = False
+                                        break
                             filter_.append(unique)
                         df2 = df2[filter_]
                         dfs_phrase_count.append(df2)
@@ -2087,7 +2095,7 @@ class AdoTextAnalyzer(object):
                         group['span_string'] = group['phrase_span'].astype(str)
                         group = group.drop_duplicates(['span_string','sentence_id'])
                         temp_df = group.agg(len)['sentence_id']
-                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':group['phrase_ambiguous'].tolist()[0],'phrase_is_idiom':group['phrase_is_idiom'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':any(group['phrase_ambiguous'].tolist()),'phrase_is_idiom':group['phrase_is_idiom'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
                         phrase_count[phrase] = temp_dict
 
             mean_clause = n_clausal and n_clauses/n_clausal or 0
