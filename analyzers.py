@@ -1026,7 +1026,6 @@ class AdoTextAnalyzer(object):
             
             sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
             opcodes = sm.get_opcodes()
-            
             filter_ = []
             for opcode in opcodes:
                 if opcode[0] == 'replace':
@@ -1891,23 +1890,23 @@ class AdoTextAnalyzer(object):
                                     continue
 
                                 phrase_parts = row['phrase_parts']
-
+                                phrase_length = len(phrase_parts)
                                 #if phrase_length > max_phrase_length:
                                 #    sentence_parts, start_index = self.get_sentence_parts(x,phrase_length)
                                 #    max_phrase_length = phrase_length
 
                                 sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
 
-                                if len(phrase_parts)>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<len(set(sum(phrase_parts,[]))):
+                                if phrase_length>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<phrase_length:
                                     continue
                                 phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
                                 if (phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or 
-                                                                                            confidence_temp==max_confidence and (len(phrase_parts)>max_clean_length or 
-                                                                                                                                 confidence_temp==1 and row['pos'][-1]!='ADP' and len(phrase_parts)==max_clean_length))):
+                                                                                            confidence_temp==max_confidence and (phrase_length>max_clean_length or 
+                                                                                                                                 confidence_temp==1 and row['pos'][-1]!='ADP' and phrase_length==max_clean_length))):
                                     phrase_span = list(np.array(phrase_span_temp) + start_index)
                                     phrase = row['original_to_display']
-                                    max_clean_length = len(phrase_parts)
-                                    max_confidence = confidence_temp
+                                    max_clean_length = phrase_length*1
+                                    max_confidence = confidence_temp*1
                                     ambiguous = row['ambiguous'] or prt_ambiguous
                                     is_idiom = row['is_idiom']
                                     
