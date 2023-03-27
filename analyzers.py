@@ -1023,7 +1023,6 @@ class AdoTextAnalyzer(object):
 
             confidence = length = len(phrase)
             ambiguous = False
-            
             sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
             opcodes = sm.get_opcodes()
             filter_ = []
@@ -1803,74 +1802,76 @@ class AdoTextAnalyzer(object):
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                     'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                     else:
+                        skip = False
                         if x.pos_ == 'INTJ' and self.__settings['intj_as_lowest']==True:
                             rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                         'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                         'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                         'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
-                            continue
+                            skip = True
                         elif x.pos_ == 'PROPN':
                             if self.__settings['propn_as_lowest']==True:
                                 rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                             'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                             'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                             'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
-                                continue
+                                skip = True
                             else:
                                 x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
                             
-                        #x = fine_lemmatize(x,self.shared_object.doc,nlp)
+                        if not skip:
+                            #x = fine_lemmatize(x,self.shared_object.doc,nlp)
 
-                        tense_level = None
-                        form = None
-                        tense_span = None
-                        tense1 = None
-                        tense2 = None
-                        tense_term = None
+                            tense_level = None
+                            form = None
+                            tense_span = None
+                            tense1 = None
+                            tense2 = None
+                            tense_term = None
 
-                        # Verb forms
-                        try:
-                            if x.pos_ in set(['VERB','AUX']):
-                                form, tense_span = self.get_verb_form(x)
-                        except:
-                            pass
-                        if form is not None:
-                            tense1, tense2 = self.classify_tense(form,x)
-                            if tense1 is not None and tense2 is not None:
-                                tense_level, form = self.tense2level(form,tense1,tense2,x)
-                                tense_term = self.convert_tense_name(form,tense1,tense2)
-                                
-                        # Clauses
-                        clause_form, clause, clause_span, clause_level = self.get_clause(x)
-                        if x.orth_.lower() in stopwords.words('english'):
-                            word_lemma = tuple([x.lemma_,'STOP'])
-                            word_orth = tuple([x.orth_.lower(),'STOP'])
-                        else:
-                            word_lemma = tuple([x.lemma_,x.pos_])
-                            word_orth = tuple([x.orth_.lower(),x.pos_])
+                            # Verb forms
+                            try:
+                                if x.pos_ in set(['VERB','AUX']):
+                                    form, tense_span = self.get_verb_form(x)
+                            except:
+                                pass
+                            if form is not None:
+                                tense1, tense2 = self.classify_tense(form,x)
+                                if tense1 is not None and tense2 is not None:
+                                    tense_level, form = self.tense2level(form,tense1,tense2,x)
+                                    tense_term = self.convert_tense_name(form,tense1,tense2)
+                                    
+                            # Clauses
+                            clause_form, clause, clause_span, clause_level = self.get_clause(x)
+                            if x.orth_.lower() in stopwords.words('english'):
+                                word_lemma = tuple([x.lemma_,'STOP'])
+                                word_orth = tuple([x.orth_.lower(),'STOP'])
+                            else:
+                                word_lemma = tuple([x.lemma_,x.pos_])
+                                word_orth = tuple([x.orth_.lower(),x.pos_])
 
-                        # Vocabulary
-                        if self.__settings['keep_min']:
-                            cefr_w_pos_prim = cefr_w_pos_min_prim
-                            cefr_wo_pos_prim = cefr_wo_pos_min_prim
-                        else:
-                            cefr_w_pos_prim = cefr_w_pos_mean_prim
-                            cefr_wo_pos_prim = cefr_wo_pos_mean_prim
+                            # Vocabulary
+                            if self.__settings['keep_min']:
+                                cefr_w_pos_prim = cefr_w_pos_min_prim
+                                cefr_wo_pos_prim = cefr_wo_pos_min_prim
+                            else:
+                                cefr_w_pos_prim = cefr_w_pos_mean_prim
+                                cefr_wo_pos_prim = cefr_wo_pos_mean_prim
 
-                        level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
+                            level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
 
-                        if level == 6:
-                            if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
-                                level = 0
-                            elif x.pos_ == 'NUM':
-                                if bool(re.match("[A-Za-z]+",x.lemma_)):
+                            if level == 6:
+                                if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
+                                    level = 0
+                                elif x.pos_ == 'NUM':
+                                    if bool(re.match("[A-Za-z]+",x.lemma_)):
+                                        level = 0
+                                    else:
+                                        level = -1
+                                elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
                                     level = 0
                                 else:
-                                    level = -1
-                            elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
-                                level = 0
-                            else:
-                                level = max(2,self.predict_cefr(x.lemma_,x.pos_))
+                                    level = max(2,self.predict_cefr(x.lemma_,x.pos_))
 
                         # Phrases
                         phrase = None
@@ -1878,7 +1879,10 @@ class AdoTextAnalyzer(object):
                         max_confidence = 0
                         ambiguous = True
                         is_idiom = True
-                        if x.pos_ not in set(["DET","PART"]) and x.lemma_ in df_phrases['word'].values:
+
+
+                        phrases_words = set(df_phrases['word'].values)
+                        if x.pos_ not in set(["DET","PART"]) and x.lemma_ in phrases_words:
                             #max_phrase_length = 0
                             max_clean_length = 0
 
@@ -1886,8 +1890,8 @@ class AdoTextAnalyzer(object):
                             sentence_parts = []
                             for _, row in df_phrases_temp.iterrows():
 
-                                if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
-                                    continue
+                                #if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
+                                #    continue
 
                                 phrase_parts = row['phrase_parts']
                                 phrase_length = len(phrase_parts)
@@ -1896,7 +1900,7 @@ class AdoTextAnalyzer(object):
                                 #    max_phrase_length = phrase_length
 
                                 sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
-
+                                
                                 if phrase_length>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<phrase_length:
                                     continue
                                 phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
@@ -1910,12 +1914,16 @@ class AdoTextAnalyzer(object):
                                     ambiguous = row['ambiguous'] or prt_ambiguous
                                     is_idiom = row['is_idiom']
                                     
-
-
-                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                    'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
-                                    'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
-                                    'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
+                        if skip:
+                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                        'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
+                                        'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                        'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
+                        else:
+                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                        'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
+                                        'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
+                                        'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
 
                 df_lemma = pd.DataFrame(rows)
                 if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
