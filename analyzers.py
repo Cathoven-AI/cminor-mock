@@ -1804,17 +1804,9 @@ class AdoTextAnalyzer(object):
                     else:
                         skip = False
                         if x.pos_ == 'INTJ' and self.__settings['intj_as_lowest']==True:
-                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                        'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
-                                        'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                        'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                             skip = True
                         elif x.pos_ == 'PROPN':
                             if self.__settings['propn_as_lowest']==True:
-                                rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
-                                            'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
-                                            'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
-                                            'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
                                 skip = True
                             else:
                                 x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
@@ -1882,7 +1874,7 @@ class AdoTextAnalyzer(object):
 
 
                         phrases_words = set(df_phrases['word'].values)
-                        if x.pos_ not in set(["DET","PART"]) and x.lemma_ in phrases_words:
+                        if x.pos_ not in set(["DET","PART"]) and x.lemma_.lower() in phrases_words:
                             #max_phrase_length = 0
                             max_clean_length = 0
 
