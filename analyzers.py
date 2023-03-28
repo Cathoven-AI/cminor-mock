@@ -1190,6 +1190,12 @@ class AdoTextAnalyzer(object):
             for i in range(start_index,end_index+1):
                 if self.shared_object.doc[i].lemma_=='not':
                     sentence_parts.append(['not','never','hardly','barely'])
+                elif self.shared_object.doc[i].lemma_ in set(['can','could']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['can','could'])
+                elif self.shared_object.doc[i].lemma_ in set(['will','would']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['will','would'])
+                elif self.shared_object.doc[i].lemma_ in set(['may','might']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['may','might'])
                 elif (self.shared_object.doc[i].lemma_.endswith('self') or self.shared_object.doc[i].lemma_.endswith('selves')) and self.shared_object.doc[i].lemma_!='self':
                     sentence_parts.append([self.shared_object.doc[i].lemma_, self.shared_object.doc[i].orth_.lower(), 'oneself'])
                 else:
@@ -1337,7 +1343,7 @@ class AdoTextAnalyzer(object):
                 first = x
                 while first.dep_ == 'conj':
                     first = first.head
-                if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf':
+                if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf' and not (x.i>=4 and self.shared_object.doc[x.i-1].lemma_=='but' and self.shared_object.doc[x.i-2].lemma_=='help' and self.shared_object.doc[x.i-3].lemma_=='not' and self.shared_object.doc[x.i-4].lemma_ in ['can','could']):
                     tense2 = 'imp.'
                 elif "VerbForm=Fin" in str(x.morph) and first.head.lemma_!='let':
                     tense2 = 'ind. (present)'
@@ -1639,7 +1645,9 @@ class AdoTextAnalyzer(object):
                     level = 2
                     
             elif clause == 'advcl':
-                if clause_form.endswith('ever'):
+                if clause_form == 'like':
+                    level = 2
+                elif clause_form.endswith('ever'):
                     level = 4
                 elif clause_form.startswith('part.'):
                     level = 2
