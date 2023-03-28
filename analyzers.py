@@ -1645,7 +1645,9 @@ class AdoTextAnalyzer(object):
                     level = 2
                     
             elif clause == 'advcl':
-                if clause_form.endswith('ever'):
+                if clause_form == 'like':
+                    level = 2
+                elif clause_form.endswith('ever'):
                     level = 4
                 elif clause_form.startswith('part.'):
                     level = 2
