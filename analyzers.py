@@ -2724,8 +2724,13 @@ class AdoTextAnalyzer(object):
                         adaptations.append(vocabulary_adaptation)
                         after_levels = vocabulary_adaptation_result['final_levels']
                     else:
-                        adaptations.append(clause_adaptation)
-                        after_levels = clause_adaptation_result['final_levels']
+                        if int(clause_adaptation_result['final_levels']['vocabulary_level'])>target_level:
+                            vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(clause_adaptation, target_level, target_adjustment, n=n, change_vocabulary=-1, auto_retry=auto_retry)
+                            adaptations.append(vocabulary_adaptation)
+                            after_levels = vocabulary_adaptation_result['final_levels']
+                        else:
+                            adaptations.append(clause_adaptation)
+                            after_levels = clause_adaptation_result['final_levels']
                 elif change_clause<0:
                     if change_vocabulary!=0:
                         vocabulary_adaptation, temp_result = self.adapt_vocabulary(piece, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
@@ -2750,8 +2755,18 @@ class AdoTextAnalyzer(object):
                             adaptation += sentence_adaptation.strip(' ')+' '
                         else:
                             adaptation += sentence.strip(' ')+' '
-                    adaptations.append(adaptation)
 
+                    temp_result = self.shared_object.analyze_cefr(adaptation,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                    return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                    return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                        
+                    if int(temp_result['final_levels']['vocabulary_level'])>target_level:
+                        vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(adaptation, target_level, target_adjustment, n=n, change_vocabulary=-1, auto_retry=auto_retry)
+                        adaptations.append(vocabulary_adaptation)
+                        after_levels = vocabulary_adaptation_result['final_levels']
+                    else:
+                        adaptations.append(adaptation)
+                        after_levels = temp_result['final_levels']
 
             after_text = ' '.join(adaptations)
             
