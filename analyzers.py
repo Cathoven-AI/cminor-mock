@@ -2247,10 +2247,16 @@ class AdoTextAnalyzer(object):
             if cumsum_series.sum()==0:
                 return 0
             level = default
-            for i,v in cumsum_series.iteritems():
-                if v>=0.95:
-                    level = i
-                    break
+            try:
+                for i,v in cumsum_series.items():
+                    if v>=0.95:
+                        level = i
+                        break
+            except:
+                for i,v in cumsum_series.iteritems():
+                    if v>=0.95:
+                        level = i
+                        break
             return level
 
         def sentence_clause_level(self,levels):
@@ -2459,7 +2465,7 @@ class AdoTextAnalyzer(object):
 
                 completion = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage to make it more complex. Use mainly words at CEFR {int2cefr[target_level]} levels. Write sentences with {min_length} to {max_length} words.\nPassage: " + text}]
+                messages=[{"role": "user", "content": f"Rewrite this passage to make it more complex. Use mainly words at CEFR {int2cefr[target_level]} levels. Write sentences with {min_length} to {max_length} words. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                 )
             else:
                 int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
@@ -2471,12 +2477,12 @@ class AdoTextAnalyzer(object):
                     levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
                     completion = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo", n=n,
-                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. \nPassage: " + text}]
+                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                     )
                 else:
                     completion = openai.ChatCompletion.create(
                     model="gpt-3.5-turbo", n=n,
-                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.\nPassage: " + text}]
+                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                     )
 
             simplifications = []
@@ -2495,6 +2501,7 @@ class AdoTextAnalyzer(object):
             self.shared_object = outer
             self.result = None
 
+        '''
         def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, auto_retry=False):
 
             n_tokens = len(gpt_tokenizer.encode(text))
@@ -2605,17 +2612,122 @@ class AdoTextAnalyzer(object):
             after_text = ' '.join(adaptations)
             
             if n_pieces>1:
-                after_levels = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                after_levels = self.shared_object.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                                 return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                                 return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
                 
             if after_levels is None:
                 after_levels = before_levels
 
-            if auto_retry and int(after_levels['general_level'])!=target_level:
+            if auto_retry and (int(after_levels['general_level'])!=target_level or target_level>=2 and len(after_text.split(' '))<len(text.split(' '))*0.6):
                 return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, auto_retry=False)
 
             self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
+        '''
+
+        def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, auto_retry=False):
+
+            n_tokens = len(gpt_tokenizer.encode(text))
+
+            n_pieces = 1
+            while n_tokens/n_pieces>1500:
+                n_pieces += 1
+            mean_piece_length = n_tokens/n_pieces
+                
+            pieces = []
+            if n_pieces>1:
+                result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+
+                piece = ''
+                for _,v in result['sentences'].items():
+                    for i in range(len(v['whitespace'])):
+                        piece += v['word'][i]+' '*v['whitespace'][i]
+                    if len(gpt_tokenizer.encode(piece))>=mean_piece_length:
+                        pieces.append(piece)
+                        piece = ''
+                if piece!='':
+                    pieces.append(piece)
+                
+            else:
+                result = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                pieces.append(text)
+
+            before_levels = result['final_levels']
+            after_levels = None
+            adaptations = []
+
+            for piece in pieces:
+                if int(before_levels['vocabulary_level'])>target_level:
+                    change_vocabulary = -1
+                elif int(before_levels['vocabulary_level'])<target_level and even:
+                    change_vocabulary = 1
+                else:
+                    change_vocabulary = 0
+
+
+                if int(before_levels['clause_level'])>target_level:
+                    change_clause = -1
+                    #new_n = min(n, int((4000-mean_piece_length)/(mean_piece_length*0.75)))
+                elif int(before_levels['clause_level'])<target_level and even:
+                    change_clause = 1
+                    #new_n = min(n, int((4000-mean_piece_length)/(mean_piece_length*1.25)))
+                else:
+                    change_clause = 0
+                    #new_n = n
+
+
+                if change_vocabulary==0 and change_clause==0 and int(before_levels['general_level'])<int(target_level):
+                    change_vocabulary = 1
+                    change_clause = 1
+
+                if change_vocabulary==0 and change_clause==0:
+                    adaptations.append(piece)
+                    continue
+
+                if change_clause<=0 and change_vocabulary!=0:
+                    vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(piece, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
+                    if vocabulary_adaptation_result is None:
+                        return
+                    if change_clause<0:
+                        adaptation = ''
+                        for i, x in vocabulary_adaptation_result['sentences'].items():
+                            sentence = ''
+                            for j in range(len(x['whitespace'])):
+                                sentence += x['word'][j]+' '*x['whitespace'][j]
+                            if x['CEFR_clause']>=target_level+1:
+                                sentence_adaptation = self.simplify_sentence(sentence)
+                                if sentence_adaptation is None:
+                                    return
+                                adaptation += sentence_adaptation.strip(' ')+' '
+                            else:
+                                adaptation += sentence.strip(' ')+' '
+                        adaptations.append(adaptation)
+                    else:
+                        adaptations.append(vocabulary_adaptation)
+                        after_levels = vocabulary_adaptation_result
+                elif change_clause>0 and change_vocabulary!=0:
+                    clause_adaptation = self.complicate_clause(piece, target_level, target_adjustment, n=n, auto_retry=auto_retry)
+                    vocabulary_adaptation, after_levels = self.adapt_vocabulary(clause_adaptation, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
+                    adaptations.append(vocabulary_adaptation)
+                else:
+                    adaptations.append(piece)
+                    after_levels = before_levels 
+
+            after_text = ' '.join(adaptations)
+            
+            if n_pieces>1 or after_levels is None:
+                after_levels = self.shared_object.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
+
+            self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
+
+
+                        
 
         def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1):
             int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
@@ -2661,4 +2773,117 @@ class AdoTextAnalyzer(object):
                     x = x[20:].strip()
                 adaptations.append(x)
             return adaptations
+            
+
+
+
+        def adapt_vocabulary(self, text, target_level, target_adjustment, n=1, change_vocabulary=-1, auto_retry=True):
+            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            levels = [int2cefr[i] for i in range(target_level+1)]
+            levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
+
+            candidates = []
+            n_self_try = 3
+            while n_self_try>0:
+                try:
+                    if change_vocabulary<0:
+                        prompt = f"In this passage, replace difficult words so that most of the passage uses only words at CEFR {levels} levels."
+                    elif change_vocabulary>0:
+                        prompt = f"In this passage, replace easy words so that most of the passage uses words at CEFR {int2cefr[target_level]} level."
+
+                    completion = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo", n=n,
+                        messages=[{"role": "user", "content": prompt+"\nPassage: " + text}]
+                    )
+                    candidates = []
+                    for x in completion['choices']:
+                        candidates.append(x['message']['content'].strip())
+                    break
+                except Exception as e:
+                    n_self_try -= 1
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return None, None
+                    print(e, "Retring",3-n_self_try)
+
+            vocabulary_adaptation = text
+            vocabulary_adaptation_result = None
+            for candidate in candidates:
+                result = self.shared_object.analyze_cefr(candidate,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                vocabulary_difference = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
+                min_vocabulary_difference = 100
+                if vocabulary_difference<1:
+                    vocabulary_adaptation = candidate
+                    vocabulary_adaptation_result = result
+                    break
+                elif vocabulary_difference<min_vocabulary_difference:
+                    vocabulary_adaptation = candidate
+                    vocabulary_adaptation_result = result
+                    min_vocabulary_difference = vocabulary_difference
+            if auto_retry and int(vocabulary_adaptation_result['final_levels']['vocabulary_level'])!=target_level:
+                return self.adapt_vocabulary(text, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=False)
+            return vocabulary_adaptation, vocabulary_adaptation_result
+
+        def simplify_sentence(self, sentence):
+            n_self_try = 3
+            while n_self_try>0:
+                try:
+                    completion = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo", n=1,
+                        messages=[{"role": "user", "content": f"To improve its readability, break this sentence into shorter sentences with 7 to 12 words: {sentence}"}]
+                    )
+                    break
+                except Exception as e:
+                    n_self_try -= 1
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return None
+                    print(e, "Retring",3-n_self_try)
+            return completion['choices'][0]['message']['content'].strip()
         
+        def complicate_clause(self, text, target_level, target_adjustment, n=1, auto_retry=True):
+            max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
+            min_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
+            prompt = f"Rewrite this passage to make it more complex. Write sentences with {min_length} to {max_length} words. Use only the vocabulary in the original passage."
+
+            candidates = []
+            n_self_try = 3
+            while n_self_try>0:
+                try:
+                    completion = openai.ChatCompletion.create(
+                        model="gpt-3.5-turbo", n=n,
+                        messages=[{"role": "user", "content": prompt+"\nPassage: " + text}]
+                    )
+                    candidates = []
+                    for x in completion['choices']:
+                        candidates.append(x['message']['content'].strip())
+                    break
+                except Exception as e:
+                    n_self_try -= 1
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return None
+                    print(e, "Retring",3-n_self_try)
+
+            clause_adaptation = text
+            clause_adaptation_result = None
+            for candidate in candidates:
+                result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                clause_difference = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
+                min_clause_difference = 100
+                if clause_difference<1:
+                    clause_adaptation = candidate
+                    clause_adaptation_result = result
+                    break
+                elif clause_difference<min_clause_difference:
+                    clause_adaptation = candidate
+                    clause_adaptation_result = result
+                    min_clause_difference = clause_difference
+            if auto_retry and int(clause_adaptation_result['final_levels']['vocabulary_level'])!=target_level:
+                return self.complicate_clause(text, target_level, target_adjustment, n=n, auto_retry=False)
+            return clause_adaptation
+
