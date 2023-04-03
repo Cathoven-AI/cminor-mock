@@ -2699,7 +2699,10 @@ class AdoTextAnalyzer(object):
                             for j in range(len(x['whitespace'])):
                                 sentence += x['word'][j]+' '*x['whitespace'][j]
                             if x['CEFR_clause']>=target_level+1:
-                                sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
+                                if x['CEFR_tense']>=target_level+1 and target_level<=1:
+                                    sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment, avoid_passive=True)
+                                else:
+                                    sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
                                 if sentence_adaptation is None:
                                     return
                                 adaptation += sentence_adaptation.strip(' ')+' '
@@ -2814,7 +2817,7 @@ class AdoTextAnalyzer(object):
                                 return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
                 vocabulary_difference = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
                 min_vocabulary_difference = 100
-                if vocabulary_difference<1:
+                if vocabulary_difference<=0.2:
                     vocabulary_adaptation = candidate
                     vocabulary_adaptation_result = result
                     break
@@ -2826,7 +2829,7 @@ class AdoTextAnalyzer(object):
                 return self.adapt_vocabulary(text, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=False)
             return vocabulary_adaptation, vocabulary_adaptation_result
 
-        def simplify_sentence(self, sentence, target_level, target_adjustment):
+        def simplify_sentence(self, sentence, target_level, target_adjustment, avoid_passive=False):
             max_length = int(round(np.log(target_level+target_adjustment+0.5+1.5)/np.log(1.1),0))
             min_length = max(1, int(round(np.log(target_level+target_adjustment-0.5+1.5)/np.log(1.1),0)))
             n_self_try = 3
@@ -2834,7 +2837,7 @@ class AdoTextAnalyzer(object):
                 try:
                     completion = openai.ChatCompletion.create(
                         model="gpt-3.5-turbo", n=1,
-                        messages=[{"role": "user", "content": f"To improve its readability, break this sentence into shorter sentences with {min_length} to {max_length} words: {sentence}"}]
+                        messages=[{"role": "user", "content": f"To improve its readability, break this sentence into shorter sentences with {min_length} to {max_length} words{' without using passive voice'*avoid_passive}: {sentence}"}]
                     )
                     break
                 except Exception as e:
