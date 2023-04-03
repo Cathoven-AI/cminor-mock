@@ -2699,7 +2699,7 @@ class AdoTextAnalyzer(object):
                             for j in range(len(x['whitespace'])):
                                 sentence += x['word'][j]+' '*x['whitespace'][j]
                             if x['CEFR_clause']>=target_level+1:
-                                sentence_adaptation = self.simplify_sentence(sentence)
+                                sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
                                 if sentence_adaptation is None:
                                     return
                                 adaptation += sentence_adaptation.strip(' ')+' '
@@ -2826,13 +2826,15 @@ class AdoTextAnalyzer(object):
                 return self.adapt_vocabulary(text, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=False)
             return vocabulary_adaptation, vocabulary_adaptation_result
 
-        def simplify_sentence(self, sentence):
+        def simplify_sentence(self, sentence, target_level, target_adjustment):
+            max_length = int(round(np.log(target_level+target_adjustment+0.5+1.5)/np.log(1.1),0))
+            min_length = max(1, int(round(np.log(target_level+target_adjustment-0.5+1.5)/np.log(1.1),0)))
             n_self_try = 3
             while n_self_try>0:
                 try:
                     completion = openai.ChatCompletion.create(
                         model="gpt-3.5-turbo", n=1,
-                        messages=[{"role": "user", "content": f"To improve its readability, break this sentence into shorter sentences with 7 to 12 words: {sentence}"}]
+                        messages=[{"role": "user", "content": f"To improve its readability, break this sentence into shorter sentences with {min_length} to {max_length} words: {sentence}"}]
                     )
                     break
                 except Exception as e:
