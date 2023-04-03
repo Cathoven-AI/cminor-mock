@@ -2684,41 +2684,74 @@ class AdoTextAnalyzer(object):
                     change_vocabulary = 1
                     change_clause = 1
 
+                print(f"change_vocabulary {change_vocabulary}, change_clause {change_clause}")
                 if change_vocabulary==0 and change_clause==0:
                     adaptations.append(piece)
                     continue
 
-                if change_clause<=0 and change_vocabulary!=0:
-                    vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(piece, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
-                    if vocabulary_adaptation_result is None:
-                        return
-                    if change_clause<0:
-                        adaptation = ''
-                        for i, x in vocabulary_adaptation_result['sentences'].items():
-                            sentence = ''
-                            for j in range(len(x['whitespace'])):
-                                sentence += x['word'][j]+' '*x['whitespace'][j]
-                            if x['CEFR_clause']>=target_level+1:
-                                if x['CEFR_tense']>=target_level+1 and target_level<=1:
-                                    sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment, avoid_passive=True)
-                                else:
-                                    sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
-                                if sentence_adaptation is None:
-                                    return
-                                adaptation += sentence_adaptation.strip(' ')+' '
-                            else:
-                                adaptation += sentence.strip(' ')+' '
-                        adaptations.append(adaptation)
+                if change_clause==0:
+                    if change_vocabulary==0:
+                        adaptations.append(piece)
+                        after_levels = before_levels
                     else:
+                        vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(piece, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
+                        if vocabulary_adaptation_result is None:
+                            return
+                        if int(vocabulary_adaptation_result['final_levels']['clause_level'])>target_level:
+                            adaptation = ''
+                            for i, x in vocabulary_adaptation_result['sentences'].items():
+                                sentence = ''
+                                for j in range(len(x['whitespace'])):
+                                    sentence += x['word'][j]+' '*x['whitespace'][j]
+                                if x['CEFR_clause']>=target_level+1:
+                                    if x['CEFR_tense']>=target_level+1 and target_level<=1:
+                                        sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment, avoid_passive=True)
+                                    else:
+                                        sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
+                                    if sentence_adaptation is None:
+                                        return
+                                    adaptation += sentence_adaptation.strip(' ')+' '
+                                else:
+                                    adaptation += sentence.strip(' ')+' '
+                            adaptations.append(adaptation)
+                        else:
+                            adaptations.append(vocabulary_adaptation)
+                            after_levels = vocabulary_adaptation_result['final_levels']
+                elif change_clause>0:
+                    clause_adaptation, clause_adaptation_result = self.complicate_clause(piece, target_level, target_adjustment, n=n, auto_retry=auto_retry)
+                    if change_vocabulary!=0:
+                        vocabulary_adaptation, vocabulary_adaptation_result = self.adapt_vocabulary(clause_adaptation, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
                         adaptations.append(vocabulary_adaptation)
-                        after_levels = vocabulary_adaptation_result
-                elif change_clause>0 and change_vocabulary!=0:
-                    clause_adaptation = self.complicate_clause(piece, target_level, target_adjustment, n=n, auto_retry=auto_retry)
-                    vocabulary_adaptation, after_levels = self.adapt_vocabulary(clause_adaptation, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
-                    adaptations.append(vocabulary_adaptation)
-                else:
-                    adaptations.append(piece)
-                    after_levels = before_levels 
+                        after_levels = vocabulary_adaptation_result['final_levels']
+                    else:
+                        adaptations.append(clause_adaptation)
+                        after_levels = clause_adaptation_result['final_levels']
+                elif change_clause<0:
+                    if change_vocabulary!=0:
+                        vocabulary_adaptation, temp_result = self.adapt_vocabulary(piece, target_level, target_adjustment, n=n, change_vocabulary=change_vocabulary, auto_retry=auto_retry)
+                        if temp_result is None:
+                            return
+                    else:
+                        temp_result = self.shared_object.analyze_cefr(piece,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+                                        return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                        return_clause_stats=False,return_phrase_count=False,return_final_levels=False,return_result=True,clear_simplifier=False)
+                    adaptation = ''
+                    for i, x in temp_result['sentences'].items():
+                        sentence = ''
+                        for j in range(len(x['whitespace'])):
+                            sentence += x['word'][j]+' '*x['whitespace'][j]
+                        if x['CEFR_clause']>=target_level+1:
+                            if x['CEFR_tense']>=target_level+1 and target_level<=1:
+                                sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment, avoid_passive=True)
+                            else:
+                                sentence_adaptation = self.simplify_sentence(sentence, target_level, target_adjustment)
+                            if sentence_adaptation is None:
+                                return
+                            adaptation += sentence_adaptation.strip(' ')+' '
+                        else:
+                            adaptation += sentence.strip(' ')+' '
+                    adaptations.append(adaptation)
+
 
             after_text = ' '.join(adaptations)
             
@@ -2869,7 +2902,7 @@ class AdoTextAnalyzer(object):
                     n_self_try -= 1
                     if n_self_try==0:
                         self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
-                        return None
+                        return None, None
                     print(e, "Retring",3-n_self_try)
 
             clause_adaptation = text
@@ -2890,5 +2923,5 @@ class AdoTextAnalyzer(object):
                     min_clause_difference = clause_difference
             if auto_retry and int(clause_adaptation_result['final_levels']['vocabulary_level'])!=target_level:
                 return self.complicate_clause(text, target_level, target_adjustment, n=n, auto_retry=False)
-            return clause_adaptation
+            return clause_adaptation, clause_adaptation_result
 
