@@ -1,4 +1,4 @@
-import openai, json, ast, warnings
+import openai, json, ast, warnings, time
 
 class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
@@ -14,9 +14,11 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        n_why = n//2
+        #n_why = n//2
         json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
-        content = f'''Generate {n} multiple choice questions for this text. {n-n_why} of the questions are about main ideas and details. The other {n_why} are "why" questions. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. You MUST arrange the questions as a Python list of dictionaries like this: {json_format}. Each dictionary is one question with keys "question", "choices", and "answer_index". The answer_index ranges from 0 to 3. I will need to parse the list directly using ast.literal_eval in Python.
+        #content = f'''Generate {n} high-order thinking multiple-choice questions for this text. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. You MUST arrange the questions as a Python list of dictionaries like this: {json_format}. Each dictionary is one question with keys "question", "choices", and "answer_index". The answer_index ranges from 0 to 3. I will need to parse the list directly using ast.literal_eval in Python.
+        content = f'''Generate {n} high-order thinking multiple choice questions for this text. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. You MUST arrange the questions as a Python list of dictionaries like this: {json_format}. Each dictionary is one question with keys "question", "choices", and "answer_index". The answer_index ranges from 0 to 3. I will need to parse the list directly using ast.literal_eval in Python.
+
         Text: {text}'''
 
         messages = [{"role": "system", "content": '''You are an English teacher who creates reading comprehension questions for an exam in Python code.'''},{"role": "user", "content": content}]
