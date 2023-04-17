@@ -2505,7 +2505,7 @@ class AdoTextAnalyzer(object):
 
         def divide_piece(self, piece):
             pieces = []
-            n_pieces = np.ceil(len(piece.split(' '))/1000)
+            n_pieces = int(np.ceil(len(piece.split(' '))/1000))
             if n_pieces<=1:
                 return [piece]
             else:
