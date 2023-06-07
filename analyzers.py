@@ -1882,39 +1882,39 @@ class AdoTextAnalyzer(object):
                         ambiguous = True
                         is_idiom = True
 
+                        if self.__settings['return_phrase_count']:
+                            phrases_words = set(df_phrases['word'].values)
+                            if x.pos_ not in set(["DET","PART"]) and x.lemma_.lower() in phrases_words:
+                                #max_phrase_length = 0
+                                max_clean_length = 0
 
-                        phrases_words = set(df_phrases['word'].values)
-                        if x.pos_ not in set(["DET","PART"]) and x.lemma_.lower() in phrases_words:
-                            #max_phrase_length = 0
-                            max_clean_length = 0
+                                df_phrases_temp = df_phrases[df_phrases['word']==x.lemma_]
+                                sentence_parts = []
+                                for _, row in df_phrases_temp.iterrows():
 
-                            df_phrases_temp = df_phrases[df_phrases['word']==x.lemma_]
-                            sentence_parts = []
-                            for _, row in df_phrases_temp.iterrows():
+                                    #if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
+                                    #    continue
 
-                                #if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
-                                #    continue
+                                    phrase_parts = row['phrase_parts']
+                                    phrase_length = len(phrase_parts)
+                                    #if phrase_length > max_phrase_length:
+                                    #    sentence_parts, start_index = self.get_sentence_parts(x,phrase_length)
+                                    #    max_phrase_length = phrase_length
 
-                                phrase_parts = row['phrase_parts']
-                                phrase_length = len(phrase_parts)
-                                #if phrase_length > max_phrase_length:
-                                #    sentence_parts, start_index = self.get_sentence_parts(x,phrase_length)
-                                #    max_phrase_length = phrase_length
-
-                                sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
-                                
-                                if phrase_length>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<phrase_length:
-                                    continue
-                                phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
-                                if (phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or 
-                                                                                            confidence_temp==max_confidence and (phrase_length>max_clean_length or 
-                                                                                                                                 confidence_temp==1 and row['pos'][-1]!='ADP' and phrase_length==max_clean_length))):
-                                    phrase_span = list(np.array(phrase_span_temp) + start_index)
-                                    phrase = row['original_to_display']
-                                    max_clean_length = phrase_length*1
-                                    max_confidence = confidence_temp*1
-                                    ambiguous = row['ambiguous'] or prt_ambiguous
-                                    is_idiom = row['is_idiom']
+                                    sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
+                                    
+                                    if phrase_length>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<phrase_length:
+                                        continue
+                                    phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
+                                    if (phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or 
+                                                                                                confidence_temp==max_confidence and (phrase_length>max_clean_length or 
+                                                                                                                                    confidence_temp==1 and row['pos'][-1]!='ADP' and phrase_length==max_clean_length))):
+                                        phrase_span = list(np.array(phrase_span_temp) + start_index)
+                                        phrase = row['original_to_display']
+                                        max_clean_length = phrase_length*1
+                                        max_confidence = confidence_temp*1
+                                        ambiguous = row['ambiguous'] or prt_ambiguous
+                                        is_idiom = row['is_idiom']
                                     
                         if skip:
                             rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
