@@ -1,4 +1,5 @@
 import pandas as pd
+import re
 
 import os
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -93,6 +94,8 @@ def fine_lemmatize(x,doc,spacy):
         x.pos_ = 'CONJ'
     elif x.pos_=='VERB' and '-' in x.orth_:
         x.lemma_ = '-'.join(x.orth_.split('-')[:-1]+[lemmatizer.lemmatize(x.orth_.split('-')[-1],'v')])
+    elif x.pos_ == "PUNCT" and len(re.findall(r'[A-Za-z]', x.orth_))>=6:
+        x.pos_ = "ADJ"
 
     #if x.lemma_.endswith('.') and not x.orth_[0].isupper() and not '.' in x.lemma_.strip('.'):
     #    x.lemma_ = x.lemma_.strip('.')
