@@ -2520,7 +2520,9 @@ class AdoTextAnalyzer(object):
                 return pieces
 
         def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", auto_retry=False):
-            n = min(n,5)
+            if by=='sentence':
+                by = "paragraph"
+            n = max(1,min(n,5))
 
             result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
                             return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
@@ -2529,8 +2531,8 @@ class AdoTextAnalyzer(object):
             after_levels = None
             adaptations = []
 
-
             pieces = []
+            '''
             if by=='sentence':
                 sentence_levels = []
                 for _,v in result['sentences'].items():
@@ -2539,12 +2541,25 @@ class AdoTextAnalyzer(object):
                         piece += v['word'][i]+' '*v['whitespace'][i]
                     pieces.append(piece)
                     sentence_levels.append({"general_level":max(v['CEFR_vocabulary'],v['CEFR_clause']),"vocabulary_level":v['CEFR_vocabulary'],"clause_level":v['CEFR_clause']})
-                
-            elif by=='paragraph':
+            '''
+            if by=='paragraph':
                 for piece in text.split('\n'):
                     pieces += self.divide_piece(piece)
             else:
                 pieces = self.divide_piece(text)
+
+            # reverse the order of pieces
+            pieces_reversed = pieces[::-1]
+            pieces = []
+            for piece in pieces_reversed:
+                if len(piece.strip().split(' '))<10 and len(pieces)>0:
+                    pieces[-1] = piece+'\n'+pieces[-1]
+                else:
+                    pieces.append(piece)
+            if len(pieces[0].strip().split(' '))<10:
+                pieces[1] = pieces[0]+'\n'+pieces[1]
+                pieces = pieces[1:]
+            pieces = pieces[::-1]
 
             n_pieces = len(pieces)
 
@@ -2553,9 +2568,9 @@ class AdoTextAnalyzer(object):
                     adaptations.append(piece)
                     continue
                 
-                if by=='sentence':
-                    piece_levels = sentence_levels[k]
-                elif n_pieces>1:
+                #if by=='sentence':
+                #    piece_levels = sentence_levels[k]
+                if n_pieces>1:
                     result = self.shared_object.analyze_cefr(piece,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                                     return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                                     return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
@@ -2588,14 +2603,15 @@ class AdoTextAnalyzer(object):
                 n_self_try = 3
                 while n_self_try>0:
                     try:
+                        '''
                         if by=='sentence' and (change_vocabulary<0 or change_clause<0):
                             candidates = [self.simplify_sentence(
                                 piece, target_level=target_level, target_adjustment=target_adjustment, 
                                 change_vocabulary=change_vocabulary, change_clause=change_clause, contexts=pieces[k-2:k])]
-                        else:
-                            candidates = self.get_adaptation(
-                                piece, target_level=target_level, target_adjustment=target_adjustment, n=n, 
-                                change_vocabulary=change_vocabulary, change_clause=change_clause)
+                        '''
+                        candidates = self.get_adaptation(
+                            piece, target_level=target_level, target_adjustment=target_adjustment, n=n, 
+                            change_vocabulary=change_vocabulary, change_clause=change_clause)
                         break
                     except Exception as e:
                         n_self_try -= 1
