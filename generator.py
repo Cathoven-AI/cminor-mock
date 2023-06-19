@@ -14,28 +14,49 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        #n_why = n//2
-        json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
+        if kind=='multiple_choice':
+            json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
 
-        content = f'''Your task is to generate high-order thinking multiple choice questions for a text. Each question has only one correct choice and three unambiguously incorrect choices.
-        Follow the steps:
-        1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
-        2. Verify each choice with the text to see if it can be the answer to the question.
-        3. If more than one choices are a possible answer to the question, discard this question and start from the beginning.
-        4. Repeat this process until you have {n} different questions.
+            content = f'''Your task is to generate high-order thinking multiple choice questions for a text. Each question has only one correct choice and three unambiguously incorrect choices.
+            Follow the steps:
+            1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
+            2. Verify each choice with the text to see if it can be the answer to the question.
+            3. If more than one choices are a possible answer to the question, discard this question and start from the beginning.
+            4. Repeat this process until you have {n} different questions.
 
-        After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
-        ```{json_format}```
+            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
+            ```{json_format}```
 
-        Each dictionary must meet the following requirements:
-        1. Each dictionary is one question with keys "question", "choices", and "answer_index".
-        2. The answer_index ranges from 0 to 3.
-        3. It can be parsed using ast.literal_eval in Python.
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one question with keys "question", "choices", and "answer_index".
+            2. The answer_index ranges from 0 to 3.
+            3. It can be parsed using ast.literal_eval in Python.
 
 
-        Text:
-        ```{text}```
-        '''
+            Text:
+            ```{text}```
+            '''
+        elif kind=='essay':
+            json_format = '''[{"question": "Why is this the case?","answer": "Some answer"},{"question": "What is this?","answer": "Some answer"}]'''
+
+            content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
+            Follow the steps:
+            1. Generate a high-order thinking question with an answer.
+            2. Verify the answer in the text.
+            3. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
+            4. Repeat this process until you have {n} different questions.
+
+            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
+            ```{json_format}```
+
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one question with keys "question" and "answer".
+            2. It can be parsed using ast.literal_eval in Python.
+
+
+            Text:
+            ```{text}```
+            '''
 
         messages = [{"role": "user", "content": content}]
         
