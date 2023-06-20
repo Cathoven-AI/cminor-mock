@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai
+import pickle, re, tensorflow, textstat, warnings, openai, ast, sys
 from textacy import text_stats
 from collections import Counter
 import Levenshtein as lev
@@ -2506,18 +2506,28 @@ class AdoTextAnalyzer(object):
             self.shared_object = outer
             self.result = None
 
-        def divide_piece(self, piece):
-            pieces = []
-            n_pieces = int(np.ceil(len(piece.split(' '))/2000))
-            if n_pieces<=1:
-                return [piece]
+        def divide_piece(self, piece, by='paragraph'):
+            max_length = 1000
+            if by == 'paragraph_backup':
+                max_length = 500
+
+            if by=='piece' or by == 'paragraph_backup':
+                pieces = []
+                n_pieces = int(np.ceil(len(piece.split(' '))/max_length))
+                if n_pieces<=1:
+                    return [piece]
+                else:
+                    sents = sent_tokenize(piece)
+                    length = len(sents)//n_pieces
+                    for i in range(n_pieces-1):
+                        pieces.append(' '.join(sents[length*i:length*(i+1)]))
+                    pieces.append(' '.join(sents[length*(n_pieces-1):]))
+                    return pieces
             else:
-                sents = sent_tokenize(piece)
-                length = len(sents)//n_pieces
-                for i in range(n_pieces-1):
-                    pieces.append(' '.join(sents[length*i:length*(i+1)]))
-                pieces.append(' '.join(sents[length*(n_pieces-1):]))
-                return pieces
+                if len(piece.split(' '))>500:
+                    return self.divide_paragraph(piece)
+                else:
+                    return [piece]
 
         def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", auto_retry=False):
             if by=='sentence':
@@ -2544,22 +2554,22 @@ class AdoTextAnalyzer(object):
             '''
             if by=='paragraph':
                 for piece in text.split('\n'):
-                    pieces += self.divide_piece(piece)
+                    pieces += self.divide_piece(piece, by=by)
             else:
-                pieces = self.divide_piece(text)
+                pieces = self.divide_piece(text, by=by)
 
-            # reverse the order of pieces
-            pieces_reversed = pieces[::-1]
-            pieces = []
-            for piece in pieces_reversed:
-                if len(piece.strip().split(' '))<10 and len(pieces)>0:
-                    pieces[-1] = piece+'\n'+pieces[-1]
-                else:
-                    pieces.append(piece)
-            if len(pieces[0].strip().split(' '))<10:
-                pieces[1] = pieces[0]+'\n'+pieces[1]
-                pieces = pieces[1:]
-            pieces = pieces[::-1]
+            if len(pieces)>0:
+                pieces_reversed = pieces[::-1]
+                pieces = []
+                for piece in pieces_reversed:
+                    if len(piece.strip().split(' '))<10 and len(pieces)>0:
+                        pieces[-1] = piece+'\n'+pieces[-1]
+                    else:
+                        pieces.append(piece)
+                if len(pieces[0].strip().split(' '))<10:
+                    pieces[1] = pieces[0]+'\n'+pieces[1]
+                    pieces = pieces[1:]
+                pieces = pieces[::-1]
 
             n_pieces = len(pieces)
 
@@ -2618,8 +2628,7 @@ class AdoTextAnalyzer(object):
                         if n_self_try==0:
                             self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                             return
-                        print(e, "Retring",3-n_self_try)
-
+                        print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
                 if candidates is None:
                     return
@@ -2673,6 +2682,59 @@ class AdoTextAnalyzer(object):
                 return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=False)
 
             self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
+
+
+        def divide_paragraph(self, text, auto_retry=True, override_messages=None):
+            list_format = '''["content of paragraph 1", "content of paragraph 2", ...]'''
+            prompt = f'''Your task is to divide this text into several paragraphs according to the topics and return them in a Python list. The content of the paragraphs should be identical to the content from the original text.
+
+            Python list format example:
+            ```{list_format}```
+
+            Text:
+            ```{text}```
+            '''
+
+            messages = [{"role": "user", "content": prompt}]
+            
+            if override_messages is None:
+                messages_to_send = messages
+            else:
+                messages_to_send = override_messages
+
+            if len(prompt.split(' '))>1500 or len(messages_to_send)>1:
+                model_name = "gpt-3.5-turbo-16k"
+            else:
+                model_name = "gpt-3.5-turbo-0613"
+
+            n_self_try = 3
+            while n_self_try>0:
+                try:
+                    completion = openai.ChatCompletion.create(
+                        model=model_name,
+                        messages=messages_to_send
+                    )
+                    break
+                except Exception as e:
+                    n_self_try -= 1
+                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+                    if n_self_try==0:
+                        return self.divide_piece(text, by='paragraph_backup')
+
+            
+            response = completion['choices'][0]['message']['content'].strip()
+
+            try:
+                paragraphs = ast.literal_eval(response)
+            except:
+                if auto_retry:
+                    return self.divide_paragraph(text, auto_retry=False, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                                                                                                                {"role": "user", "content": f"The paragraphs you returned are not in Python list format. Return them as a Python list like this example: {list_format}"}])
+                else:
+                    print("The bot didn't return the paragraphs in Python list format.")
+                    return self.divide_piece(text, by='paragraph_backup')
+
+            return paragraphs
 
 
         def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1):

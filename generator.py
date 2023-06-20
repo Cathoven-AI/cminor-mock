@@ -1,4 +1,4 @@
-import openai, json, ast, warnings, time
+import openai, json, ast, warnings, os, sys
 
 class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
@@ -77,7 +77,7 @@ class AdoQuestionGenerator(object):
                 n_self_try -= 1
                 if n_self_try==0:
                     return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
-                print(e, "Retring",3-n_self_try)
+                print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
         response = completion['choices'][0]['message']['content'].strip()
         questions = self.parse_questions(response)
@@ -86,7 +86,7 @@ class AdoQuestionGenerator(object):
             if auto_retry>0:
                 if auto_retry%2==1:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them in as a Python list of dictionaries like this example: {json_format}"}])
+                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
             else:
