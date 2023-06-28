@@ -41,14 +41,16 @@ class AdoQuestionGenerator(object):
 
             content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
 
-            Don't repeat the question in the answer. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
-            The answer should have an initial uppercase letter and puntuations at the end. For example, "Charophyta." instead of "charophyta" or "Charophyta".
+            Answer rules:
+            1. Use short phrases when possible. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
+            2. The answer should have a full stop at the end. For example, "Charophyta." instead of "Charophyta".
             
             Follow the steps:
-            1. Generate a high-order thinking question with an answer.
-            2. Verify the answer in the text.
-            3. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
-            4. Repeat this process until you have {n} different questions.
+            1. Generate a high-order thinking question.
+            2. Answer the question yourself following the answer rules.
+            3. Verify the answer in the text again.
+            4. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
+            5. Repeat this process until you have {n} different questions.
 
             After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
             ```{json_format}```
@@ -95,6 +97,9 @@ class AdoQuestionGenerator(object):
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
+
+        for i in range(len(questions)):
+            questions[i]['answer'] = questions[i]['answer'].capitalize()
 
         return questions
     
