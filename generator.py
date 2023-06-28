@@ -42,7 +42,8 @@ class AdoQuestionGenerator(object):
             content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
 
             Don't repeat the question in the answer. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
-
+            The answer should have a initial uppercase letter and a period at the end. For example, "Charophyta." instead of "charophyta" or "Charophyta".
+            
             Follow the steps:
             1. Generate a high-order thinking question with an answer.
             2. Verify the answer in the text.
