@@ -40,6 +40,9 @@ class AdoQuestionGenerator(object):
             json_format = '''[{"question": "Why is this the case?","answer": "Some answer"},{"question": "What is this?","answer": "Some answer"}]'''
 
             content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
+
+            Don't repeat the question in the answer. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
+
             Follow the steps:
             1. Generate a high-order thinking question with an answer.
             2. Verify the answer in the text.
