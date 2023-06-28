@@ -36,7 +36,7 @@ class AdoQuestionGenerator(object):
             Text:
             ```{text}```
             '''
-        elif kind=='essay':
+        elif kind=='essay_question':
             json_format = '''[{"question": "Why is this the case?","answer": "Some answer"},{"question": "What is this?","answer": "Some answer"}]'''
 
             content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
