@@ -52,7 +52,7 @@ class AdoQuestionGenerator(object):
             4. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
             5. Repeat this process until you have {n} different questions.
 
-            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
+            After you generate {n} questions, arrange them as a Python list of dictionaries with keys "question" and "answer", like this:
             ```{json_format}```
 
             Each dictionary must meet the following requirements:
@@ -98,8 +98,9 @@ class AdoQuestionGenerator(object):
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
 
-        for i in range(len(questions)):
-            questions[i]['answer'] = questions[i]['answer'].capitalize()
+        if kind=='essay_question':
+            for i in range(len(questions)):
+                questions[i]['answer'] = questions[i]['answer'].capitalize()
 
         return questions
     
