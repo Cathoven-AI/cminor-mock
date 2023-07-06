@@ -1,4 +1,4 @@
-import openai, json, ast, warnings, time
+import openai, json, ast, warnings, os, sys
 
 class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
@@ -14,14 +14,57 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        #n_why = n//2
-        json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
-        #content = f'''Generate {n} high-order thinking multiple-choice questions for this text. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. You MUST arrange the questions as a Python list of dictionaries like this: {json_format}. Each dictionary is one question with keys "question", "choices", and "answer_index". The answer_index ranges from 0 to 3. I will need to parse the list directly using ast.literal_eval in Python.
-        content = f'''Generate {n} high-order thinking multiple choice questions for this text. Each question has four choices. The answers must be logically correct and the other choices must be incorrect. You MUST arrange the questions as a Python list of dictionaries like this: {json_format}. Each dictionary is one question with keys "question", "choices", and "answer_index". The answer_index ranges from 0 to 3. I will need to parse the list directly using ast.literal_eval in Python.
+        if kind=='multiple_choice':
+            json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
 
-        Text: {text}'''
+            content = f'''Your task is to generate high-order thinking multiple choice questions for a text. Each question has only one correct choice and three unambiguously incorrect choices.
+            Follow the steps:
+            1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
+            2. Verify each choice with the text to see if it can be the answer to the question.
+            3. If more than one choices are a possible answer to the question, discard this question and start from the beginning.
+            4. Repeat this process until you have {n} different questions.
 
-        messages = [{"role": "system", "content": '''You are an English teacher who creates reading comprehension questions for an exam in Python code.'''},{"role": "user", "content": content}]
+            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
+            ```{json_format}```
+
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one question with keys "question", "choices", and "answer_index".
+            2. The answer_index ranges from 0 to 3.
+            3. It can be parsed using ast.literal_eval in Python.
+
+
+            Text:
+            ```{text}```
+            '''
+        elif kind=='essay_question':
+            json_format = '''[{"question": "Why is this the case?","answer": "Some answer"},{"question": "What is this?","answer": "Some answer"}]'''
+
+            content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
+
+            Answer rules:
+            1. Use short phrases when possible. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
+            2. The answer should have a full stop at the end. For example, "Charophyta." instead of "Charophyta".
+            
+            Follow the steps:
+            1. Generate a high-order thinking question.
+            2. Answer the question yourself following the answer rules.
+            3. Verify the answer in the text again.
+            4. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
+            5. Repeat this process until you have {n} different questions.
+
+            After you generate {n} questions, arrange them as a Python list of dictionaries with keys "question" and "answer", like this:
+            ```{json_format}```
+
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one question with keys "question" and "answer".
+            2. It can be parsed using ast.literal_eval in Python.
+
+
+            Text:
+            ```{text}```
+            '''
+
+        messages = [{"role": "user", "content": content}]
         
         if override_messages is None:
             messages_to_send = messages
@@ -32,7 +75,7 @@ class AdoQuestionGenerator(object):
         while n_self_try>0:
             try:
                 completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
+                    model="gpt-3.5-turbo-0613",
                     messages=messages_to_send
                 )
                 break
@@ -40,7 +83,7 @@ class AdoQuestionGenerator(object):
                 n_self_try -= 1
                 if n_self_try==0:
                     return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
-                print(e, "Retring",3-n_self_try)
+                print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
         response = completion['choices'][0]['message']['content'].strip()
         questions = self.parse_questions(response)
@@ -49,11 +92,15 @@ class AdoQuestionGenerator(object):
             if auto_retry>0:
                 if auto_retry%2==1:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them in as a Python list of dictionaries like this example: {json_format}"}])
+                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. response: {response}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
+
+        if kind=='essay_question':
+            for i in range(len(questions)):
+                questions[i]['answer'] = questions[i]['answer'].capitalize()
 
         return questions
     
