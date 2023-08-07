@@ -35,11 +35,11 @@ def fine_lemmatize(x,doc,spacy):
         x.lemma_ = 'will'
         if x.pos_ == 'VERB':
             x.pos_ = 'AUX'
-    elif x.orth_.lower() in set(["'d","’d"]):
-        if 'Aspect=Perf' in doc[min(x.i+1,len(doc)-1)].morph:
+    elif x.orth_.lower() in set(["'d","’d"]) and x.i+1<len(doc):
+        if x.nbor(1).tag_!="VB":
             x.lemma_ = 'have'
         elif x.tag_ == 'MD':
-            if doc[min(x.i+1,len(doc)-1)].orth_.lower() == 'better':
+            if x.nbor(1).orth_.lower() == 'better':
                 x.lemma_ = 'have'
             else:
                 x.lemma_ = 'would'
