@@ -75,7 +75,7 @@ class AdoQuestionGenerator(object):
         while n_self_try>0:
             try:
                 completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo-0613",
+                    model="gpt-3.5-turbo",
                     messages=messages_to_send
                 )
                 break
@@ -92,7 +92,7 @@ class AdoQuestionGenerator(object):
             if auto_retry>0:
                 if auto_retry%2==1:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python dictionary format. Return them as a Python list of dictionaries like this example: {json_format}"}])
+                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python list of dictionary format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
             else:
