@@ -2472,7 +2472,7 @@ class AdoTextAnalyzer(object):
                 min_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
 
                 completion = openai.ChatCompletion.create(
-                model="gpt-4", n=n,
+                model="gpt-3.5-turbo", n=n,
                 messages=[{"role": "user", "content": f"Rewrite this passage to make it more complex. Use mainly words at CEFR {int2cefr[target_level]} levels. Write sentences with {min_length} to {max_length} words. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                 )
             else:
@@ -2484,12 +2484,12 @@ class AdoTextAnalyzer(object):
                     levels = [int2cefr[i] for i in range(target_level+1)]
                     levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
                     completion = openai.ChatCompletion.create(
-                    model="gpt-4", n=n,
+                    model="gpt-3.5-turbo", n=n,
                     messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                     )
                 else:
                     completion = openai.ChatCompletion.create(
-                    model="gpt-4", n=n,
+                    model="gpt-3.5-turbo", n=n,
                     messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
                     )
 
@@ -2708,7 +2708,7 @@ class AdoTextAnalyzer(object):
             if len(prompt.split(' '))>1500 or len(messages_to_send)>1:
                 model_name = "gpt-3.5-turbo-16k"
             else:
-                model_name = "gpt-4"
+                model_name = "gpt-3.5-turbo"
 
             n_self_try = 3
             while n_self_try>0:
@@ -2823,7 +2823,7 @@ class AdoTextAnalyzer(object):
             if n_tokens>4000:
                 model_name = "gpt-3.5-turbo-16k"
             else:
-                model_name = "gpt-4"
+                model_name = "gpt-3.5-turbo"
 
             prompt = prompt+f"\nPassage:\n```{text}```"
 
@@ -2895,7 +2895,7 @@ class AdoTextAnalyzer(object):
             #    prompt += f'\nPrevious sentences:\n```{context}```'
 
             completion = openai.ChatCompletion.create(
-                model="gpt-4", n=1,
+                model="gpt-3.5-turbo", n=1,
                 messages=[{"role": "user", "content": prompt+f"\nSentence:\n```{sentence}```"}]
             )
             sentence = completion['choices'][0]['message']['content'].strip().replace('\n',' ')
