@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai, ast, sys
+import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time
 from textacy import text_stats
 from collections import Counter
 import Levenshtein as lev
@@ -175,6 +175,7 @@ class AdoTextAnalyzer(object):
                         return_sentences, return_wordlists,return_vocabulary_stats,
                         return_tense_count,return_tense_term_count,return_tense_stats,return_clause_count,
                         return_clause_stats,return_phrase_count,return_final_levels)
+
         if return_result:
             return self.cefr.result
 
@@ -250,9 +251,13 @@ class AdoTextAnalyzer(object):
         self.adaptor = None
         self.text = text
 
+        self.t0 = time.time()
+        self.openai_time = 0
+
         self.adaptor = self.CefrAdaptor(self)
 
         self.adaptor.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=auto_retry)
+        print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
 
         if return_result:
             return self.adaptor.result
@@ -2613,6 +2618,7 @@ class AdoTextAnalyzer(object):
                         adaptations.append(piece)
                         continue
 
+                openai_t0 = time.time()
                 n_self_try = 3
                 while n_self_try>0:
                     try:
@@ -2632,6 +2638,8 @@ class AdoTextAnalyzer(object):
                             self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                             return
                         print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+
+                self.shared_object.openai_time += time.time()-openai_t0
 
                 if candidates is None:
                     return
@@ -2713,10 +2721,12 @@ class AdoTextAnalyzer(object):
             n_self_try = 3
             while n_self_try>0:
                 try:
+                    openai_t0 = time.time()
                     completion = openai.ChatCompletion.create(
                         model=model_name,
                         messages=messages_to_send
                     )
+                    self.shared_object.openai_time += time.time()-openai_t0
                     break
                 except Exception as e:
                     n_self_try -= 1
