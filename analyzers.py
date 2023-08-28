@@ -2661,7 +2661,10 @@ class AdoTextAnalyzer(object):
 
                 min_difference = 100
                 min_difference_std = -1
+                adaptation = piece.strip()
                 for candidate in candidates:
+                    if len(candidate.strip().split(' '))<len(piece.strip().split(' '))*0.3:
+                        continue
                     result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                                     return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                                     return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
