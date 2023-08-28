@@ -9,7 +9,7 @@ from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
 import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time
-from textacy import text_stats
+from textacy import text_stats, extract
 from collections import Counter
 import Levenshtein as lev
 from lexical_diversity import lex_div as ld
@@ -1959,7 +1959,22 @@ class AdoTextAnalyzer(object):
 
             dfs_phrase_count = []
 
+            if self.__settings['return_sentences'] or self.__settings['return_wordlists']:
+                dfs_keyterms = []
+                for pos in ['NOUN','VERB','ADJ','ADV']:
+                    df_keyterms = pd.DataFrame(extract.keyterms.yake(self.shared_object.doc, ngrams=1, include_pos=(pos,),topn=1.), columns=['lemma','yake'])
+                    df_keyterms['pos'] = pos
+                    dfs_keyterms.append(df_keyterms)
+                df_keyterms = pd.concat(dfs_keyterms)
+                df_lemma = df_lemma.merge(df_keyterms,how='left',on=['pos','lemma'])
+                df_lemma['yake'] = df_lemma['yake'].fillna(-1)
+
+
             for sentence_id, df in dfs.items():
+                if self.__settings['return_sentences'] or self.__settings['return_wordlists']:
+                    df = df.merge(df_keyterms,how='left',on=['pos','lemma'])
+                    df['yake'] = df['yake'].fillna(-1)
+
                 #clause_level = self.sentence_clause_level(df['CEFR_clause'].dropna().values)
                 #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
                 total_span = max(1,len(set(sum(df['clause_span'].dropna().values,[]))))
@@ -1992,7 +2007,7 @@ class AdoTextAnalyzer(object):
                         phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[],'phrase_is_idiom':[]}
 
                 if self.__settings['return_sentences']:
-                    lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR']].to_dict(orient='list')
+                    lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR','yake']].to_dict(orient='list')
                     df2 = df[['form','tense1','tense2','CEFR_tense','tense_span']].dropna()
                     level_dict = {'CEFR_vocabulary':6,'CEFR_tense':5}
                     if len(df2)>0:
@@ -2025,8 +2040,8 @@ class AdoTextAnalyzer(object):
             if self.__settings['return_wordlists']:
                 wordlists = {}
                 for CEFR,group in df_lemma[df_lemma['CEFR']>=-1].groupby('CEFR'):
-                    df = group[['lemma','pos']]
-                    wordlists[CEFR] = df.groupby(df.columns.tolist(),as_index=False).size().sort_values(['size','lemma','pos'],ascending=[False,True,True]).to_dict(orient='list')
+                    df = group[['lemma','pos','yake']]
+                    wordlists[CEFR] = df.groupby(df.columns.tolist(),as_index=False).size().sort_values(['size','lemma','pos','yake'],ascending=[False,True,True,True]).to_dict(orient='list')
                 
             if self.__settings['return_tense_count'] or self.__settings['return_tense_stats']:
                 tense_count = {}
