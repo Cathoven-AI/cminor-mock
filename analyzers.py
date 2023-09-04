@@ -1975,10 +1975,12 @@ class AdoTextAnalyzer(object):
                 pos_temp = set(['NOUN','VERB','ADJ','ADV'])
                 df_lemma_temp = df_lemma[df_lemma.apply(lambda x: x['pos'] in pos_temp and x['lemma'] not in most_freq_50 and len(x['lemma'])>1, axis = 1)].copy()
                 df_lemma_temp['lemma_pos'] = df_lemma_temp['lemma'] + '_' + df_lemma_temp['pos']
-                for topic, words in topic_words.items():
-                    temp = list(set(df_lemma_temp['lemma_pos']).intersection(words))
-                    if len(temp)>0:
-                        topic_vocabulary[topic] = temp
+                topic_vocabulary = {topic:{} for topic in topic_words.keys()}
+                for topic, subtopics in topic_words.items():
+                    for subtopic, words in subtopics.items():
+                        temp = list(set(df_lemma_temp['lemma_pos']).intersection(words))
+                        if len(temp)>0:
+                            topic_vocabulary[topic][subtopic] = temp
 
 
             for sentence_id, df in dfs.items():
