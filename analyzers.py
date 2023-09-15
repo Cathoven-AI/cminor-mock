@@ -121,7 +121,7 @@ df_phrases = df_phrases[~((df_phrases['characters']<=9)&(df_phrases['length']<=2
 df_phrases = df_phrases[df_phrases['original'].apply(lambda x: x not in ignore_phrases)]
 phrase_original2id = df_phrases.set_index('original')['id'].to_dict()
 people_list = set(pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/people_list.pkl'),'rb')))
-
+topic_words = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/topic_words.pkl'),'rb'))
 
 del br2am, df_corpus, df_aoa, df_mrc, df_abstract, df_temp
 
@@ -496,7 +496,7 @@ class AdoTextAnalyzer(object):
                     
                     # Summarize
 
-                    if lemma_list[-1] in set(stopwords.words('english')) or x.is_stop:
+                    if lemma_list[-1] in most_freq_50 or x.is_stop:
                         stop_list.append(True)
                     else:
                         stop_list.append(False)
@@ -1855,7 +1855,7 @@ class AdoTextAnalyzer(object):
                                     
                             # Clauses
                             clause_form, clause, clause_span, clause_level = self.get_clause(x)
-                            if x.orth_.lower() in stopwords.words('english'):
+                            if x.orth_.lower() in most_freq_50:
                                 word_lemma = tuple([x.lemma_,'STOP'])
                                 word_orth = tuple([x.orth_.lower(),'STOP'])
                             else:
@@ -1950,6 +1950,7 @@ class AdoTextAnalyzer(object):
                                     'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
                                     'clause_form','clause','CEFR_clause','clause_span',
                                     'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom'])
+            self.df_lemma = df_lemma
             n_words = len(df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')])
             
             n_clausal = 0
@@ -1968,6 +1969,18 @@ class AdoTextAnalyzer(object):
                 df_keyterms = pd.concat(dfs_keyterms)
                 df_lemma = df_lemma.merge(df_keyterms,how='left',on=['pos','lemma'])
                 df_lemma['yake'] = df_lemma['yake'].fillna(-1)
+                self.df_lemma = df_lemma
+
+                topic_vocabulary = {}
+                pos_temp = set(['NOUN','VERB','ADJ','ADV'])
+                df_lemma_temp = df_lemma[df_lemma.apply(lambda x: x['pos'] in pos_temp and x['lemma'] not in most_freq_50 and len(x['lemma'])>1, axis = 1)].copy()
+                df_lemma_temp['lemma_pos'] = df_lemma_temp['lemma'] + '_' + df_lemma_temp['pos']
+                topic_vocabulary = {topic:{} for topic in topic_words.keys()}
+                for topic, subtopics in topic_words.items():
+                    for subtopic, words in subtopics.items():
+                        temp = list(set(df_lemma_temp['lemma_pos']).intersection(words))
+                        if len(temp)>0:
+                            topic_vocabulary[topic][subtopic] = temp
 
 
             for sentence_id, df in dfs.items():
@@ -2183,6 +2196,7 @@ class AdoTextAnalyzer(object):
                 #self.sentences = sentences
             if self.__settings['return_wordlists']:
                 result_dict['wordlists'] = wordlists
+                result_dict['topic_vocabulary'] = topic_vocabulary
                 #self.wordlists = wordlists
             if self.__settings['return_vocabulary_stats']:
                 result_dict['stats'] = stats_dict
