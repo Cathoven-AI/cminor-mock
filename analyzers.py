@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time
+import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests
 from textacy import text_stats, extract
 from collections import Counter
 import Levenshtein as lev
@@ -171,10 +171,10 @@ class AdoTextAnalyzer(object):
                 for x in self.doc:
                     x = fine_lemmatize(x,self.doc,nlp)
             self.cefr = self.CefrAnalyzer(self)
-            self.cefr.start_analyze(propn_as_lowest,intj_as_lowest,keep_min,
-                        return_sentences, return_wordlists,return_vocabulary_stats,
-                        return_tense_count,return_tense_term_count,return_tense_stats,return_clause_count,
-                        return_clause_stats,return_phrase_count,return_final_levels)
+            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
 
         if return_result:
             return self.cefr.result
@@ -2946,3 +2946,109 @@ class AdoTextAnalyzer(object):
                 sentence = sentence[:sentence.rfind('(')]
             return sentence
 
+class AdoVideoAnalyzer(object):
+    from faster_whisper import WhisperModel
+    def __init__(self, text_analyser, temp_dir='temp'):
+        self.analyser = text_analyser
+        self.model = self.WhisperModel('medium.en', device="cuda", compute_type="float16")
+        self.temp_dir = temp_dir
+
+    def get_video_info(self,url):
+        ydl_opts = {'subtitleslangs':True}
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=False)
+        text = None
+        lines = None
+        duration = None
+        all_subtitles = info_dict.get('subtitles')
+        if all_subtitles is not None:
+            en_subtitles = all_subtitles.get('en')
+            if en_subtitles is not None:
+                lines, duration = self.download_subtitles(en_subtitles)
+                text = ' '.join([x['text'] for x in lines])
+        return {'id':info_dict.get('id'),'title':info_dict.get('title'), 'text':text, 'subtitles':lines, 'speak_duration':duration}
+
+
+    def download_subtitles(self,subtitles):
+        try:
+            for x in subtitles:
+                if x['ext']=='json3':
+                    r = requests.get(x['url'])
+                    break
+            lines = []
+            duration = 0
+            for x in r.json()['events']:
+                line = []
+                for y in x['segs']:
+                    line += list(y.values())
+                line = ' '.join(line).replace('\n',' ')
+                line = re.sub(r"\([^()]*\)", "", line)
+                line = re.sub(r"\[[^()]*\]", "", line).strip(' ')
+                if line!='':
+                    duration += x['dDurationMs']
+                lines.append({'start':x['tStartMs']/1000,'end':(x['tStartMs']+x['dDurationMs'])/1000,'text':line})
+            return lines, duration/1000
+        except Exception as e:
+            print(e)
+            return None, None
+
+    def transcribe_video(self, url, video_id=None):
+        if video_id is None:
+            filename = '%(id)s.mp3'
+        else:
+            filename = video_id+'.mp3'
+
+        try:
+            segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
+        except:
+            ydl_opts = {
+                'format': 'bestaudio',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': self.temp_dir.strip('\\')+'/'+filename
+            }
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(url, download=True)
+            if video_id is None:
+                filename = info_dict['id']+'.mp3'
+            segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
+
+        segments = list(segments)
+        text = ''
+        lines = []
+        speak_duration = 0
+        for x in segments:
+            text += x.text
+            lines.append({'start':x.start,'end':x.end,'text':x.text.strip(' ')})
+            speak_duration += x.end-x.start
+        return {'subtitles':lines, 'transcription':text, 'speak_duration':speak_duration}
+
+    def spm_level(self, spm):
+        return min(max(0,spm*0.0595-9.9931),6)
+
+    def calculate(self, vocabulary_level,tense_level,clause_level,spm):
+        coef = np.array([0.35068207, 0.23099973, 0.3439605 , 0.35280761])
+        return round(sum(np.array([vocabulary_level,tense_level,clause_level,spm])*coef),1)
+
+    def analyze_audio(self, text, speak_duration,
+                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+        
+        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
+        final_levels = result['final_levels']
+        n_syllables = solar_word.count_syllables(text)
+        
+        spm = n_syllables*60/speak_duration
+        speech_rate_level = self.spm_level(spm)
+        final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
+        final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
+        result['final_levels'] = final_levels
+        return result

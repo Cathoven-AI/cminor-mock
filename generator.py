@@ -1,3 +1,4 @@
+import numpy as np
 import openai, json, ast, warnings, os, sys
 
 class AdoQuestionGenerator(object):
@@ -115,3 +116,101 @@ class AdoQuestionGenerator(object):
             except:
                 return None
         return questions
+    
+class AdoTextGenerator(object):
+    def __init__(self, text_analyser, openai_api_key=None):
+        self.openai_api_key = openai_api_key
+        self.analyser = text_analyser
+
+    def create_text(self,level,n_words=300,topic=None,grammar=None,genre=None,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        else:
+            openai.api_key = self.openai_api_key
+        prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,grammar=grammar,genre=genre)
+        return self.execute_prompt(prompt,level,temp_results=[],propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
+
+    def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
+        int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+        target_level = int2cefr[level]
+        max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
+        requirements = []
+        #if genre:
+        #    requirements.append(f"The genre is {genre}.")
+        if topic:
+            requirements.append(f"The topic is {topic}.")
+        if keywords:
+            requirements.append(f"It should include these words: {', '.join(keywords)}.")
+        if grammar:
+            requirements.append(f"In terms of grammar, use {', '.join(grammar)} a lot of times.")
+        
+        requirements.append(f"It should be around {n_words} words.")
+        requirements.append('''Don't use style text.''')
+        requirements.append('''Don't use number markers like "(1)" "(2)" ...''')
+        
+        if level<=2:
+            prompt = f'''
+You task is to use simple language to write a {genre} text at CEFR {target_level} level for small kids. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
+
+{target_level} level texts should meet these requirements:
+1. Each sentence is not longer than {max_length} words.
+2. The vocabulary should be simple and below CEFR {target_level} level.
+
+In the meantime, the text should meet the following requirements:
+'''
+        else:
+            prompt = f'''
+You task is to write a {genre} text at CEFR {target_level} level.
+
+{target_level} level texts should meet these requirements:
+1. Each sentence is not longer than {max_length} words.
+2. The vocabulary should not be more difficult than CEFR {target_level} level.
+
+In the meantime, the text should meet the following requirements:
+'''
+
+        for i, x in enumerate(requirements):
+            prompt += f"{i+1}. {x}\n"
+        
+        return prompt.strip('\n')
+
+    def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+        print(f"Trying {len(temp_results)+1}")
+        completion = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            n=1
+        )
+        text = completion['choices'][0]['message']['content'].strip()
+        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
+        if int(result['final_levels']['general_level'])!=level:
+            if auto_retry>0:
+                temp_results.append([result['final_levels']['general_level'],text,result])
+                if len(temp_results)==2:
+                    return self.execute_prompt(prompt,max(0,level-1),auto_retry=auto_retry-1,temp_results=temp_results)
+                else:
+                    return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
+            else:
+                diff = abs(temp_results[0][0]-(level+0.5))
+                text = temp_results[0][1]
+                result = temp_results[0][2]
+                for i in range(1,len(temp_results)):
+                    if abs(temp_results[i][0]-level)<diff:
+                        text = temp_results[i][1]
+                        result = temp_results[i][2]
+                return {'text':text, 'result':result}
+        else:
+            return {'text':text, 'result':result}
