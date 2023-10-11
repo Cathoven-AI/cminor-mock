@@ -141,7 +141,7 @@ class AdoTextGenerator(object):
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
         target_level = int2cefr[level]
         max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-        requirements = []
+        requirements = ['There should be a title.']
         #if genre:
         #    requirements.append(f"The genre is {genre}.")
         if topic:
@@ -210,6 +210,10 @@ In the meantime, the text should meet the following requirements:
                 best_i = np.argmin(diffs)
                 text = temp_results[best_i][1]
                 result = temp_results[best_i][2]
+                if text.startswith('Title: '):
+                    text = text[7:]
                 return {'text':text, 'result':result}
         else:
+            if text.startswith('Title: '):
+                text = text[7:]
             return {'text':text, 'result':result}
