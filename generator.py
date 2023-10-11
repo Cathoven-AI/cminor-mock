@@ -1,5 +1,5 @@
 import numpy as np
-import openai, json, ast, warnings, os, sys
+import openai, json, ast, warnings, os, sys, re
 
 class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
@@ -208,12 +208,13 @@ In the meantime, the text should meet the following requirements:
                 for i in range(len(temp_results)):
                     diffs.append(abs(temp_results[i][0]-level))
                 best_i = np.argmin(diffs)
-                text = temp_results[best_i][1]
+                text = re.sub(r'\([0-9]+\)', '', temp_results[best_i][1]).replace('  ',' ')
                 result = temp_results[best_i][2]
                 if text.startswith('Title: '):
                     text = text[7:]
                 return {'text':text, 'result':result}
         else:
+            text = re.sub(r'\([0-9]+\)', '', text).replace('  ',' ')
             if text.startswith('Title: '):
                 text = text[7:]
             return {'text':text, 'result':result}
