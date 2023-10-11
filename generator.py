@@ -153,7 +153,7 @@ class AdoTextGenerator(object):
         
         requirements.append(f"It should be around {n_words} words.")
         requirements.append('''Don't use style text.''')
-        requirements.append('''Don't use number markers like "(1)" "(2)" ...''')
+        requirements.append('''Only return the title and the text once. Don't repeat the text. Don't include other notes or comments.''')
         
         if level<=2:
             prompt = f'''
@@ -208,13 +208,17 @@ In the meantime, the text should meet the following requirements:
                 for i in range(len(temp_results)):
                     diffs.append(abs(temp_results[i][0]-level))
                 best_i = np.argmin(diffs)
-                text = re.sub(r'\([0-9]+\)', '', temp_results[best_i][1]).replace('  ',' ')
+                text = re.sub(r'\([0-9]+\)', '', temp_results[best_i][1]).replace('Title: ','').replace('Text: ','').replace('  ',' ')
+                lines = text.split('\n')
+                if lines[0].startswith('"') and lines[0].endswith('"'):
+                    lines[0] = lines[0][1:-1]
+                    text = '\n'.join(lines)
                 result = temp_results[best_i][2]
-                if text.startswith('Title: '):
-                    text = text[7:]
                 return {'text':text, 'result':result}
         else:
-            text = re.sub(r'\([0-9]+\)', '', text).replace('  ',' ')
-            if text.startswith('Title: '):
-                text = text[7:]
+            text = re.sub(r'\([0-9]+\)', '', text).replace('Title: ','').replace('Text: ','').replace('  ',' ')
+            lines = text.split('\n')
+            if lines[0].startswith('"') and lines[0].endswith('"'):
+                lines[0] = lines[0][1:-1]
+                text = '\n'.join(lines)
             return {'text':text, 'result':result}
