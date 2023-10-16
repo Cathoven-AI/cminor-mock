@@ -12,13 +12,14 @@ class AdoLevelAdaptor(object):
         self.analyser = text_analyser
         self.result = None
 
+
     def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=False):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
             openai.api_key = self.openai_api_key
-        text = self.analyser.clean_text(text)
+        text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
 
         self.t0 = time.time()
         self.openai_time = 0
@@ -28,7 +29,7 @@ class AdoLevelAdaptor(object):
 
         if return_result:
             return self.result
-        
+
     def divide_piece(self, piece, by='paragraph'):
         max_length = 1000
         if by == 'paragraph_backup':
@@ -52,7 +53,7 @@ class AdoLevelAdaptor(object):
             else:
                 return [piece]
 
-    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", auto_retry=False):
+    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", auto_retry=False, model="gpt-3.5-turbo"):
         if by=='sentence':
             by = "paragraph"
         n = max(1,min(n,5))
@@ -145,7 +146,7 @@ class AdoLevelAdaptor(object):
                     '''
                     candidates = self.get_adaptation(
                         piece, target_level=target_level, target_adjustment=target_adjustment, n=n, 
-                        change_vocabulary=change_vocabulary, change_clause=change_clause)
+                        change_vocabulary=change_vocabulary, change_clause=change_clause, model=model)
                     break
                 except Exception as e:
                     n_self_try -= 1
@@ -154,7 +155,7 @@ class AdoLevelAdaptor(object):
                         return
                     print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
-            self.shared_object.openai_time += time.time()-openai_t0
+            self.openai_time += time.time()-openai_t0
 
             if candidates is None:
                 return
@@ -207,8 +208,8 @@ class AdoLevelAdaptor(object):
         if after_levels is None:
             after_levels = before_levels
 
-        if auto_retry and by=='piece' and int(after_levels['general_level'])!=target_level:
-            return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=False)
+        if auto_retry and int(after_levels['general_level'])!=target_level:
+            return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model='gpt-4')
 
         self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
 
@@ -244,7 +245,7 @@ class AdoLevelAdaptor(object):
                     model=model_name,
                     messages=messages_to_send
                 )
-                self.shared_object.openai_time += time.time()-openai_t0
+                self.openai_time += time.time()-openai_t0
                 break
             except Exception as e:
                 n_self_try -= 1
@@ -268,7 +269,7 @@ class AdoLevelAdaptor(object):
         return paragraphs
 
 
-    def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1):
+    def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
         levels = [int2cefr[i] for i in range(target_level+1)]
         levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
@@ -277,7 +278,8 @@ class AdoLevelAdaptor(object):
         transport => move
         shrink => get smaller
         pregnancy => having a baby
-        have serious consequences => bad things will happen'''
+        have serious consequences => bad things will happen
+        anaesthesia => using drugs to make people feel no pain'''
 
         if change_clause<0:
             max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
@@ -348,10 +350,19 @@ class AdoLevelAdaptor(object):
         
         n_tokens = len(gpt_tokenizer.encode(prompt)) + len(gpt_tokenizer.encode(text))*(n+1)
 
-        if n_tokens>4000:
-            model_name = "gpt-3.5-turbo-16k"
+        if model=="gpt-4":
+            if n_tokens>8000:
+                model_name = "gpt-4-32k"
+            else:
+                model_name = "gpt-4"
+            print(4)
         else:
-            model_name = "gpt-3.5-turbo"
+            if n_tokens>4000:
+                model_name = "gpt-3.5-turbo-16k"
+            else:
+                model_name = "gpt-3.5-turbo"
+
+
 
         prompt = prompt+f"\nPassage:\n```{text}```"
 
@@ -369,65 +380,3 @@ class AdoLevelAdaptor(object):
                 x = x[20:].strip()
             adaptations.append(x)
         return adaptations
-        
-    def simplify_sentence(self, sentence, target_level, target_adjustment, change_vocabulary=False, change_clause=True, contexts=[]):
-        change_vocabulary = int(change_vocabulary)
-        change_clause = int(change_clause)
-        reference = False
-
-        if change_vocabulary!=0:
-            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-            levels = [int2cefr[i] for i in range(target_level+1)]
-            levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-        if change_clause!=0:
-            max_length = int(round(np.log(target_level+target_adjustment+0.5+1.5)/np.log(1.1),0))
-            min_length = max(1, int(round(np.log(target_level+target_adjustment-0.5+1.5)/np.log(1.1),0)))
-
-        if len(contexts)>0:
-            context = ' '.join(contexts[-2:])
-        else:
-            context = ''
-
-        examples = '''\nExamples of replacing difficult words:
-        transport => move
-        shrink => get smaller
-        pregnancy => having a baby
-        have serious consequences => bad things will happen'''
-
-        if change_clause==0 or change_clause<0 and len(sentence.split(' '))<=max_length:
-            if change_vocabulary<0:
-                prompt = f"Your task is to rewrite this sentence without changing its meaning. Replace difficult words with CEFR {levels} words so that a child can easily understand.\n"+examples
-            elif change_vocabulary>0:
-                prompt = f"Your task is to rewrite this sentence without changing its meaning. Replace easy words with CEFR {int2cefr[target_level]} words."
-            else:
-                return sentence
-        elif change_clause<0:
-            if change_vocabulary<0:
-                reference = True
-                prompt = f'''Your task is to rewrite this sentence so that a child can easily understand. Follow these steps:
-                1. Recognize the subordinate clauses in the sentence.
-                2. Break down the sentence into several shorter sentences according to its subordinate clauses, with no more than {max_length} words in each new sentence.
-                3. Replace difficult words and use mainly words at CEFR {levels} levels.
-                '''+examples
-                # 4. If some reference is unclear, refer to the previous sentences, but don't include them in your sentence.
-            else:
-                prompt = f'''Your task is to break down this sentence into several shorter sentences. Follow these steps:
-                1. Recognize the subordinate clauses in the sentence.
-                2. Break down the sentence into several shorter sentences according to its subordinate clauses, with no more than {max_length} words in each new sentence.
-                3. Use only the vocabulary from the original sentence.
-                4. Return the result without line breaks.'''
-        else:
-            return sentence
-
-        #if reference and context!='':
-        #    prompt += f'\nPrevious sentences:\n```{context}```'
-
-        completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo", n=1,
-            messages=[{"role": "user", "content": prompt+f"\nSentence:\n```{sentence}```"}]
-        )
-        sentence = completion['choices'][0]['message']['content'].strip().replace('\n',' ')
-
-        if '(' in sentence[-10:]:
-            sentence = sentence[:sentence.rfind('(')]
-        return sentence
