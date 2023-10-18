@@ -145,10 +145,10 @@ class AdoTextAnalyzer(object):
         self.adaptor = None
         self.openai_api_key = openai_api_key
 
-    def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True, custom_levels={},
+    def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True):
+                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True,return_modified_final_levels=False):
         text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
@@ -163,7 +163,7 @@ class AdoTextAnalyzer(object):
         temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
                         'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
                         'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
-                        'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels}
+                        'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels,'return_modified_final_levels':return_modified_final_levels}
 
         if self.cefr is None or temp_settings!=self.cefr.print_settings():
             if self.doc is None:
@@ -171,10 +171,10 @@ class AdoTextAnalyzer(object):
                 for x in self.doc:
                     x = fine_lemmatize(x,self.doc,nlp)
             self.cefr = self.CefrAnalyzer(self)
-            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min, custom_levels=custom_levels,
+            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
 
         if return_result:
             return self.cefr.result
@@ -933,7 +933,7 @@ class AdoTextAnalyzer(object):
             self.__settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,
                     'return_sentences':True, 'return_wordlists':True,'return_vocabulary_stats':True,
                     'return_tense_count':True,'return_tense_term_count':True,'return_tense_stats':True,'return_clause_count':True,
-                    'return_clause_stats':True,'return_phrase_count':True,'return_final_levels':True}
+                    'return_clause_stats':True,'return_phrase_count':True,'return_final_levels':True,'return_modified_final_levels':False}
 
             self.tense_level_dict = {('unbound modal verbs', 'fin.'):0,
                     ('do', 'inf.'):0,
@@ -1775,7 +1775,7 @@ class AdoTextAnalyzer(object):
             return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
             
 
-        def process(self, custom_levels={}):
+        def process(self):
             dfs = {}
             rows = []
             for sent in self.shared_object.doc.sents:
@@ -1870,21 +1870,19 @@ class AdoTextAnalyzer(object):
                                 cefr_w_pos_prim = cefr_w_pos_mean_prim
                                 cefr_wo_pos_prim = cefr_wo_pos_mean_prim
 
-                            level = custom_levels.get(word_lemma)
-                            if custom_levels.get(word_lemma) is None:
-                                level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
-                                if level == 6:
-                                    if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
-                                        level = 0
-                                    elif x.pos_ == 'NUM':
-                                        if bool(re.match("[A-Za-z]+",x.lemma_)):
-                                            level = 0
-                                        else:
-                                            level = -1
-                                    elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
+                            level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
+                            if level == 6:
+                                if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
+                                    level = 0
+                                elif x.pos_ == 'NUM':
+                                    if bool(re.match("[A-Za-z]+",x.lemma_)):
                                         level = 0
                                     else:
-                                        level = max(2,self.predict_cefr(x.lemma_,x.pos_))
+                                        level = -1
+                                elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
+                                    level = 0
+                                else:
+                                    level = max(2,self.predict_cefr(x.lemma_,x.pos_))
 
                         # Phrases
                         phrase = None
@@ -1961,7 +1959,7 @@ class AdoTextAnalyzer(object):
 
             dfs_phrase_count = []
 
-            if self.__settings['return_sentences'] or self.__settings['return_wordlists']:
+            if self.__settings['return_sentences'] or self.__settings['return_wordlists'] or self.__settings['return_modified_final_levels']:
                 dfs_keyterms = []
                 for pos in ['NOUN','VERB','ADJ','ADV']:
                     df_keyterms = pd.DataFrame(extract.keyterms.yake(self.shared_object.doc, ngrams=1, include_pos=(pos,),topn=1.), columns=['lemma','yake'])
@@ -2041,9 +2039,9 @@ class AdoTextAnalyzer(object):
                     else:
                         clause_dict = {'clause_form':[],'clause':[],'clause_span':[]}
 
-                    _,cumsum_series = self.sum_cumsum(df[df['CEFR']>=-1])
+                    #_,cumsum_series = self.sum_cumsum(df[df['CEFR']>=-1])
 
-                    level_dict['CEFR_vocabulary'] = self.ninety_five(cumsum_series)
+                    level_dict['CEFR_vocabulary'] = self.estimate_95(df[df['CEFR']>=-1]['CEFR'].values)
                     level_dict['CEFR_clause'] = round(clause_level,1)
 
                     if self.__settings['return_phrase_count']:
@@ -2051,7 +2049,7 @@ class AdoTextAnalyzer(object):
                     else:
                         sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict}
                 
-            if self.__settings['return_wordlists']:
+            if self.__settings['return_wordlists'] or self.__settings['return_modified_final_levels']:
                 wordlists = {}
                 for CEFR,group in df_lemma[df_lemma['CEFR']>=-1].groupby('CEFR'):
                     df = group[['lemma','pos','yake']]
@@ -2170,10 +2168,11 @@ class AdoTextAnalyzer(object):
                 stats_dict[k]['constants']=[a,b,c,d]
                 if k == 'cumsum_token':
                     stats_dict['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
-                                        'ninety_five':[self.ninety_five(cumsum_series_token)],
+                                        #'ninety_five':[self.ninety_five(cumsum_series_token)],
+                                        'ninety_five':[self.estimate_95(df_lemma[df_lemma['CEFR']>=-1]['CEFR'].values)],
                                         'fit_error':[self.fit_error(stats_dict[k]['values'][2:-1],range(1,6),a,b,c,d)]}
-            
-            if self.__settings['return_final_levels'] or self.__settings['return_tense_stats']:
+
+            if self.__settings['return_final_levels'] or self.__settings['return_tense_stats'] or self.__settings['return_modified_final_levels']:
                 if tense_stats["level"]["fit_error"][0]>=0.05:
                     tense_level = tense_stats["level"]["ninety_five"][0]
                 else:
@@ -2184,12 +2183,45 @@ class AdoTextAnalyzer(object):
                 else:
                     vocabulary_level = stats_dict["level"]["fit_curve"][0]
                 
-                
-                
                 average_level = (vocabulary_level+tense_level+clause_level)/3
                 general_level = max([vocabulary_level,tense_level,average_level,clause_level-0.5])
 
-                final_levels = {'general_level':round(general_level,1),'vocabulary_level':round(vocabulary_level,1),'tense_level':round(tense_level,1),'clause_level':clause_level}
+                final_levels = {'general_level':min(round(general_level,1),6),
+                                'vocabulary_level':min(round(vocabulary_level,1),6),
+                                'tense_level':min(round(tense_level,1),6),
+                                'clause_level':min(clause_level,6)}
+
+            if self.__settings['return_modified_final_levels']:
+                df_lemma_temp2 = df_lemma.copy()
+                buttom_level = max(tense_level,clause_level-0.5)
+                wordlist_dfs = []
+                ignored_words = []
+                modified_final_levels = []
+                if final_levels['vocabulary_level']>buttom_level:
+                    for l in reversed(range(6)):
+                        if l<=buttom_level:
+                            break
+                        wordlist = wordlists.get(l)
+                        if wordlist:
+                            wordlist = pd.DataFrame(wordlist)
+                            wordlist_dfs.append(wordlist[wordlist['size']>=3])
+                    if len(wordlist_dfs)>0:
+                        difficult_words = pd.concat(wordlist_dfs).sort_values('size').to_dict('records')
+                        for x in difficult_words:
+                            for i,row in enumerate(df_lemma_temp2.to_dict('records')):
+                                if x['lemma']==row['lemma'] and x['pos']==row['pos']:
+                                    df_lemma_temp2.iat[i,4] = -1
+                            ignored_words.append(x['lemma']+"_"+x['pos'])
+                            modified_vocabulary_level = self.estimate_95(df_lemma_temp2['CEFR'].values)
+                            modified_average_level = (modified_vocabulary_level+tense_level+clause_level)/3
+                            modified_general_level = max([modified_vocabulary_level,tense_level,modified_average_level,clause_level-0.5])
+                            modified_final_levels.append({'ignored_words':ignored_words,'final_levels':{'general_level':min(round(modified_general_level,1),6),
+                                                                                                        'vocabulary_level':min(round(modified_vocabulary_level,1),6),
+                                                                                                        'tense_level':min(round(tense_level,1),6),
+                                                                                                        'clause_level':min(clause_level,6)}})
+                            if modified_vocabulary_level<=buttom_level:
+                                break
+
 
             result_dict = {}
             if self.__settings['return_sentences']:
@@ -2234,6 +2266,8 @@ class AdoTextAnalyzer(object):
                 #self.clause_count = clause_count
             if self.__settings['return_final_levels']:
                 result_dict['final_levels'] = final_levels
+            if self.__settings['return_modified_final_levels']:
+                result_dict['modified_final_levels'] = modified_final_levels
                 #self.final_levels = final_levels
             self.result = result_dict
 
@@ -2286,6 +2320,16 @@ class AdoTextAnalyzer(object):
             y = np.array(y)
             return (d-np.log(a/y+b))/c
 
+        def estimate_95(self, levels, minimum=-1, maximum=6):
+            cumsum = np.cumsum([Counter(levels).get(i,0) for i in range(minimum,maximum+1)])
+            cumsum = cumsum/cumsum[-1]
+            for i in range(len(cumsum)-1):
+                if cumsum[i]==0.95:
+                    return i+minimum
+                elif cumsum[i+1]>0.95:
+                    return i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i])
+            return maximum
+
         def ninety_five(self,cumsum_series,default=6):
             if cumsum_series.sum()==0:
                 return 0
@@ -2317,10 +2361,10 @@ class AdoTextAnalyzer(object):
             sum_series_type, cumsum_series_type = self.sum_cumsum(df_lemma,mode='type')
             return sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type
 
-        def start_analyze(self, propn_as_lowest=True,intj_as_lowest=True,keep_min=True, custom_levels={},
+        def start_analyze(self, propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                         return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                         return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                        return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+                        return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=False):
             self.__settings['propn_as_lowest']=propn_as_lowest
             self.__settings['intj_as_lowest']=intj_as_lowest
             self.__settings['keep_min']=keep_min
@@ -2333,8 +2377,9 @@ class AdoTextAnalyzer(object):
             self.__settings['return_clause_count']=return_clause_count
             self.__settings['return_clause_stats']=return_clause_stats
             self.__settings['return_final_levels']=return_final_levels
+            self.__settings['return_modified_final_levels']=return_modified_final_levels
             self.__settings['return_phrase_count']=return_phrase_count
-            self.process(custom_levels=custom_levels)
+            self.process()
 
         def print_settings(self):
             return self.__settings

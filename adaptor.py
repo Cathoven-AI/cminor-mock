@@ -58,11 +58,16 @@ class AdoLevelAdaptor(object):
             by = "paragraph"
         n = max(1,min(n,5))
 
-        result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+        before_result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
                         return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                        return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-        before_levels = result['final_levels']
+                        return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+        before_levels = before_result['final_levels']
+        if len(before_result['modified_final_levels'])>1:
+            modified_before_levels = before_result['modified_final_levels']
+        else:
+            modified_before_levels = None
         after_levels = None
+        modified_after_levels = None
         adaptations = []
 
         pieces = []
@@ -168,7 +173,11 @@ class AdoLevelAdaptor(object):
                     continue
                 result = self.analyser.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                                 return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+
+                if int(result['final_levels']['general_level'])==target_level:
+                    adaptation = candidate
+                    break
 
                 if change_vocabulary:
                     vocabulary_difference = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
@@ -187,10 +196,14 @@ class AdoLevelAdaptor(object):
                 if difference<1:
                     adaptation = candidate
                     after_levels = result['final_levels']
+                    if len(result['modified_final_levels'])>0:
+                        modified_after_levels = result['modified_final_levels'][-1]
                     break
                 elif difference<min_difference or difference==min_difference and difference_std<min_difference_std:
                     adaptation = candidate
                     after_levels = result['final_levels']
+                    if len(result['modified_final_levels'])>0:
+                        modified_after_levels = result['modified_final_levels'][-1]
                     min_difference = difference
                     min_difference_std = difference_std
             adaptations.append(adaptation)
@@ -201,17 +214,21 @@ class AdoLevelAdaptor(object):
             after_text = ' '.join(adaptations)
         
         if n_pieces>1:
-            after_levels = self.analyser.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+            after_result = self.analyser.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                             return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
-            
+                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+            after_levels = after_result['final_levels']
+            if len(after_result['modified_final_levels'])>0:
+                modified_after_levels = after_result['modified_final_levels'][-1]
+
         if after_levels is None:
             after_levels = before_levels
+            modified_after_levels = modified_before_levels
 
-        if auto_retry and int(after_levels['general_level'])!=target_level:
+        if auto_retry and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
             return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model='gpt-4')
 
-        self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
+        self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
 
 
     def divide_paragraph(self, text, auto_retry=True, override_messages=None):
@@ -274,12 +291,13 @@ class AdoLevelAdaptor(object):
         levels = [int2cefr[i] for i in range(target_level+1)]
         levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
 
-        examples = '''\nExamples of replacing difficult words:
+        examples = '''\nExamples of replacing difficult words and long clauses:
         transport => move
         shrink => get smaller
         pregnancy => having a baby
         have serious consequences => bad things will happen
-        anaesthesia => using drugs to make people feel no pain'''
+        anaesthesia => using drugs to make people feel no pain
+        Studying galaxies helps us understand more about how the universe has changed over time. => The universe has changed over time. Studying galaxies helps us understand more about this.'''
 
         if change_clause<0:
             max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))

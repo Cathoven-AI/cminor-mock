@@ -157,7 +157,7 @@ class AdoTextGenerator(object):
         
         if level<=2:
             prompt = f'''
-You task is to use simple language to write a {genre} text at CEFR {target_level} level for small kids. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
+You task is to use simple language to write a {genre} text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
 
 {target_level} level texts should meet these requirements:
 1. Each sentence is not longer than {max_length} words.
@@ -185,9 +185,14 @@ In the meantime, the text should meet the following requirements:
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                       return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
-        print(f"Trying {len(temp_results)+1}")
+        n_trials = len(temp_results)+1
+        print(f"Trying {n_trials}")
+        if n_trials==4:
+            model_name = "gpt-4"
+        else:
+            model_name = "gpt-3.5-turbo"
         completion = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=model_name,
             messages=[{"role": "user", "content": prompt}],
             n=1
         )
