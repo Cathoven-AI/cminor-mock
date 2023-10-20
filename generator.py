@@ -125,7 +125,7 @@ class AdoTextGenerator(object):
     def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -135,7 +135,7 @@ class AdoTextGenerator(object):
         return self.execute_prompt(prompt,level,temp_results=[],propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
@@ -184,10 +184,10 @@ In the meantime, the text should meet the following requirements:
     def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
-        if n_trials==4:
+        if n_trials>=3:
             model_name = "gpt-4"
         else:
             model_name = "gpt-3.5-turbo"
@@ -200,14 +200,16 @@ In the meantime, the text should meet the following requirements:
         result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
+                        return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels,return_result=True)
         if int(result['final_levels']['general_level'])!=level:
             if auto_retry>0:
                 temp_results.append([result['final_levels']['general_level'],text,result])
-                if len(temp_results)==2:
-                    return self.execute_prompt(prompt,max(0,level-1),auto_retry=auto_retry-1,temp_results=temp_results)
-                else:
-                    return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
+                #if len(temp_results)>=2:
+                #    return self.execute_prompt(prompt,max(0,level-1),auto_retry=auto_retry-1,temp_results=temp_results)
+                #else:
+                #    return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
+                return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
             else:
                 diffs = []
                 for i in range(len(temp_results)):
