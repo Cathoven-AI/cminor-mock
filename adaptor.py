@@ -14,7 +14,7 @@ class AdoLevelAdaptor(object):
         self.result = None
 
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=False):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=False, model="gpt-3.5-turbo"):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -26,7 +26,7 @@ class AdoLevelAdaptor(object):
         self.openai_time = 0
 
         self.before_result = None
-        self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=auto_retry)
+        self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=auto_retry, model=model)
         print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
 
         if return_result:
@@ -175,8 +175,12 @@ class AdoLevelAdaptor(object):
                 if int(result['final_levels']['general_level'])==target_level:
                     adaptation = candidate
                     after_levels = result['final_levels']
-                    if len(result['modified_final_levels'])>0:
-                        modified_after_levels = result['modified_final_levels'][-1]
+                    modified_after_levels = None
+                    break
+                elif n_pieces==1 and auto_retry==False and len(result['modified_final_levels'])>0 and int(result['modified_final_levels'][-1]['final_levels']['general_level'])==target_level:
+                    adaptation = candidate
+                    after_levels = result['final_levels']
+                    modified_after_levels = result['modified_final_levels'][-1]
                     break
 
                 if change_vocabulary:
@@ -191,8 +195,8 @@ class AdoLevelAdaptor(object):
                 else:
                     clause_difference = abs(result['final_levels']['clause_level']-before_levels['clause_level'])
 
-                difference = vocabulary_difference+tense_difference*0.5+clause_difference
-                difference_std = np.std([vocabulary_difference,tense_difference*0.5,clause_difference])
+                difference = vocabulary_difference+tense_difference+clause_difference
+                difference_std = np.std([vocabulary_difference,tense_difference,clause_difference])
                 if difference<1:
                     adaptation = candidate
                     after_levels = result['final_levels']
@@ -227,7 +231,7 @@ class AdoLevelAdaptor(object):
             modified_after_levels = modified_before_levels
 
         if auto_retry and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
-            return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model='gpt-4')
+            return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model=model)
 
         self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
 
@@ -247,7 +251,6 @@ class AdoLevelAdaptor(object):
                 model_name = "gpt-4-32k"
             else:
                 model_name = "gpt-4"
-            print(4)
         else:
             if n_tokens>4000:
                 model_name = "gpt-3.5-turbo-16k"
@@ -262,7 +265,7 @@ class AdoLevelAdaptor(object):
         )
 
         adaptations = []
-        if change_vocabulary<0:
+        if False:#change_vocabulary<0:
             for x in completion['choices']:
                 x = x['message']['content'].strip()
                 try:
@@ -285,13 +288,13 @@ class AdoLevelAdaptor(object):
         level = int2cefr[target_level]
         max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
         
-        if change_vocabulary<0:
+        if False:#change_vocabulary<0:
             prompt = f'''
 You are an English textbook editor. Your task is to write texts at CEFR {level} level.
 
 Follow these steps when writing:
-1. Use simple language to summarize all the ideas of a text as bullet points
-2. Extend the ideas and write a simpler text at CEFR {level} level according to those points.
+1. Use summarize all the ideas of a text as bullet points
+2. To recreate the text at CEFR {level} level, use one or more simple sentences to rewrite each point.
 
 A text at CEFR {level} level should meet the following requirements:
 1. The vocabulary should be simple and below CEFR {level} level. Don't use technical or academic words. Paraphrase technical or academic words. For example:
@@ -393,5 +396,4 @@ For each sentence, follow these rules:
                 else:
                     return ''
             prompt = prompt+f"\nPassage:\n```{text}```"
-
         return prompt
