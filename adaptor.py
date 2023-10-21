@@ -14,7 +14,7 @@ class AdoLevelAdaptor(object):
         self.result = None
 
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", max_piece_length=200, n=1, auto_retry=False, return_result=False, model="gpt-3.5-turbo"):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=False, model="gpt-3.5-turbo"):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -26,16 +26,16 @@ class AdoLevelAdaptor(object):
         self.openai_time = 0
 
         self.before_result = None
-        self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, max_piece_length=max_piece_length, auto_retry=auto_retry, model=model)
+        self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, min_piece_length=min_piece_length, auto_retry=auto_retry, model=model)
         print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
 
         if return_result:
             return self.result
 
-    def divide_piece(self, piece, max_length=2000, by='piece'):
-        max_length = min(max_length,2000)
+    def divide_piece(self, piece, min_piece_length=2000, by='piece'):
+        min_piece_length = min(min_piece_length,2000)
         pieces = []
-        n_pieces = int(np.ceil(len(piece.split(' '))/max_length))
+        n_pieces = int(np.ceil(len(piece.split(' '))/min_piece_length))
         if n_pieces<=1:
             return [piece]
         else:
@@ -67,7 +67,7 @@ class AdoLevelAdaptor(object):
             return pieces
 
 
-    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", max_piece_length=100, auto_retry=False, model="gpt-3.5-turbo"):
+    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", min_piece_length=100, auto_retry=False, model="gpt-3.5-turbo"):
         if by=='sentence':
             by = "paragraph"
         n = max(1,min(n,5))
@@ -99,9 +99,9 @@ class AdoLevelAdaptor(object):
                 sentence_levels.append({"general_level":max(v['CEFR_vocabulary'],v['CEFR_clause']),"vocabulary_level":v['CEFR_vocabulary'],"clause_level":v['CEFR_clause']})
         '''
         if by=='paragraph':
-            pieces += self.divide_piece(text, max_length=max_piece_length, by=by)
+            pieces += self.divide_piece(text, min_piece_length=min_piece_length, by=by)
         else:
-            pieces = self.divide_piece(text, max_length=2000, by=by)
+            pieces = self.divide_piece(text, min_piece_length=2000, by=by)
 
 
 
