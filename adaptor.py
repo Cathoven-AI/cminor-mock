@@ -33,7 +33,7 @@ class AdoLevelAdaptor(object):
             return self.result
 
     def divide_piece(self, piece):
-        max_length = 6000
+        max_length = 2000
         pieces = []
         n_pieces = int(np.ceil(len(piece.split(' '))/max_length))
         if n_pieces<=1:
@@ -53,7 +53,7 @@ class AdoLevelAdaptor(object):
         n = max(1,min(n,5))
 
         if self.before_result is None:
-            before_result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
+            before_result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
                             return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                             return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
         else:
@@ -88,11 +88,11 @@ class AdoLevelAdaptor(object):
             pieces_reversed = pieces[::-1]
             pieces = []
             for piece in pieces_reversed:
-                if len(piece.strip().split(' '))<10 and len(pieces)>0:
+                if len(piece.strip().split(' '))<100 and len(pieces)>0:
                     pieces[-1] = piece+'\n'+pieces[-1]
                 else:
                     pieces.append(piece)
-            if len(pieces[0].strip().split(' '))<10:
+            if len(pieces[0].strip().split(' '))<100:
                 pieces[1] = pieces[0]+'\n'+pieces[1]
                 pieces = pieces[1:]
             pieces = pieces[::-1]
@@ -136,9 +136,11 @@ class AdoLevelAdaptor(object):
                     adaptations.append(piece)
                     continue
 
+            candidates = []
             openai_t0 = time.time()
             n_self_try = 3
-            while n_self_try>0:
+            n_per_call = min(max(1,int(8000/len(piece.split(' '))-1)),n)
+            while n_self_try>0 and len(candidates)<n:
                 try:
                     '''
                     if by=='sentence' and (change_vocabulary<0 or change_clause<0):
@@ -146,10 +148,9 @@ class AdoLevelAdaptor(object):
                             piece, target_level=target_level, target_adjustment=target_adjustment, 
                             change_vocabulary=change_vocabulary, change_clause=change_clause, contexts=pieces[k-2:k])]
                     '''
-                    candidates = self.get_adaptation(
-                        piece, target_level=target_level, target_adjustment=target_adjustment, n=n, 
+                    candidates += self.get_adaptation(
+                        piece, target_level=target_level, target_adjustment=target_adjustment, n=max(n_per_call,n-len(candidates)), 
                         change_vocabulary=change_vocabulary, change_clause=change_clause, model=model)
-                    break
                 except Exception as e:
                     n_self_try -= 1
                     if n_self_try==0:
@@ -210,7 +211,7 @@ class AdoLevelAdaptor(object):
                         modified_after_levels = result['modified_final_levels'][-1]
                     min_difference = difference
                     min_difference_std = difference_std
-            adaptations.append(adaptation)
+            adaptations.append(adaptation.strip('\n'))
 
         if by=='paragraph':
             after_text = '\n'.join(adaptations)
@@ -237,27 +238,20 @@ class AdoLevelAdaptor(object):
 
 
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
+        n = min(n,10)
         prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change_vocabulary=change_vocabulary, change_clause=change_clause)
         if prompt=="":
             return []
 
-        n_tokens = len(gpt_tokenizer.encode(prompt)) + len(gpt_tokenizer.encode(text))*(n+1)
-
-        if n_tokens>6000:
-            model="gpt-4"
+        n_tokens = len(gpt_tokenizer.encode(prompt))
 
         if model=="gpt-4":
-            if n_tokens>8000:
-                model_name = "gpt-4-32k"
-            else:
-                model_name = "gpt-4"
+            model_name = "gpt-4"
         else:
             if n_tokens>4000:
                 model_name = "gpt-3.5-turbo-16k"
             else:
                 model_name = "gpt-3.5-turbo"
-
-        prompt = prompt+f"\nPassage:\n```{text}```"
 
         completion = openai.ChatCompletion.create(
             model=model_name, n=n,
@@ -340,6 +334,7 @@ For each sentence, follow these rules:
 2. Replace difficult words and use mainly words at CEFR {levels} levels.
 3. Use no more than {max_length} words.
 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
+5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 ''' + examples
                 elif change_vocabulary>0:
                     prompt = f'''Your task is to replace easy words in this passage so that most of the words are at CEFR {int2cefr[target_level]} level.
@@ -348,6 +343,7 @@ For each sentence, follow these rules:
 2. Use mainly words at CEFR {int2cefr[target_level]} level.
 3. Use no more than {max_length} words.
 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
+5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''
                 else:
                     prompt = f'''Your task is to rewrite this passage so that the sentence structure is simplier.
@@ -356,6 +352,7 @@ For each sentence, follow these rules:
 2. Use only the vocabulary in the original passage.
 3. Use no more than {max_length} words.
 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
+5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''
             elif change_clause>0:
                 max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
@@ -366,12 +363,14 @@ For each sentence, follow these rules:
 1. Do not make the vocabulary more complex.
 2. Replace difficult words and use only words at CEFR {levels} levels so that a child can easily understand.
 3. Use {min_length} to {max_length} words.
+4. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 ''' + examples
                 elif change_vocabulary>0:
                     prompt = f'''Your task is to rewrite this passage to make it more complex.
 For each sentence, follow these rules:
 1. Use mainly words at CEFR {int2cefr[target_level]} level.
 2. Use {min_length} to {max_length} words.
+3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''
                 else:
                     prompt = f'''Your task is to rewrite this passage to make the sentence structure more complex.
@@ -379,6 +378,7 @@ For each sentence, follow these rules:
 1. Do not make the vocabulary more complex.
 2. Use only the vocabulary in the original passage.
 3. Use {min_length} to {max_length} words.
+4. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''
             else:
                 if change_vocabulary<0:
@@ -386,12 +386,14 @@ For each sentence, follow these rules:
 For each sentence, follow these rules:
 1. Try not to change the sentence structure.
 2. Replace difficult words and use only words at CEFR {levels} levels so that a child can easily understand.
+3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''+examples
                 elif change_vocabulary>0:
                     prompt = f'''Your task is to replace easier words with more difficult ones in this passage.
 For each sentence, follow these rules:
 1. Try not to change the sentence structure.
 2. Use only words at CEFR {int2cefr[target_level]} level.
+3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
 '''
                 else:
                     return ''
