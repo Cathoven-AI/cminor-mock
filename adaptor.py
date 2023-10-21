@@ -245,6 +245,7 @@ class AdoLevelAdaptor(object):
         self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
 
 
+
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
         n = min(n,10)
         prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change_vocabulary=change_vocabulary, change_clause=change_clause)
