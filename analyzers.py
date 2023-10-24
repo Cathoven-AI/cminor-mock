@@ -981,14 +981,14 @@ class AdoTextAnalyzer(object):
                     ('be being done', 'ind. (present)'):'Present continuous passive',
                     ('do', 'ger.'):'Gerund simple',
                     ('do', 'part. (past)'):'Past participle simple',
-                    ('be done', 'ger.'):'Gerund perfect',
+                    ('be done', 'ger.'):'Gerund simple passive',
                     ('be doing', 'inf.'):'Infinitive continuous',
                     ('have done', 'inf.'):'Infinitive perfect',
                     ('have been doing', 'ind. (past)'):'Past perfect continuous',
                     ('have been done', 'ind. (past)'):'Past perfect passive',
                     ('be being done', 'ind. (past)'):'Past continuous passive',
                     ('have been done', 'inf.'):'Infinitive perfect passive',
-                    ('have done', 'ger.'):'Gerund perfect passive',
+                    ('have done', 'ger.'):'Gerund perfect',
                     ('have been doing', 'inf.'):'Infinitive perfect continuous',
                     ('have been doing', 'ger.'):'Gerund perfect continuous',
                     ('have been done', 'ger.'):'Gerund perfect passive'}
@@ -3012,8 +3012,16 @@ class AdoVideoAnalyzer(object):
 
     def get_video_info(self,url):
         ydl_opts = {'subtitleslangs':True}
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
+        n_trials = 3
+        while n_trials>0:
+            try:
+                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                    info_dict = ydl.extract_info(url, download=False)
+                break
+            except Exception as e:
+                n_trials -= 1
+                if n_trials == 0:
+                    raise Exception(e)
         text = None
         lines = None
         duration = None
