@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests
+import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests, torch
 from textacy import text_stats, extract
 from collections import Counter
 import Levenshtein as lev
@@ -3004,7 +3004,10 @@ class AdoVideoAnalyzer(object):
     from faster_whisper import WhisperModel
     def __init__(self, text_analyser, temp_dir='temp'):
         self.analyser = text_analyser
-        self.model = self.WhisperModel('medium.en', device="cuda", compute_type="float16")
+        if torch.cuda.is_available():
+            self.model = self.WhisperModel('medium.en', device="cuda", compute_type="float16")
+        else:
+            self.model = self.WhisperModel('medium.en', device="cpu", compute_type="int8")
         self.temp_dir = temp_dir
 
     def get_video_info(self,url):

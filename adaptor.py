@@ -156,9 +156,13 @@ class AdoLevelAdaptor(object):
                             piece, target_level=target_level, target_adjustment=target_adjustment, 
                             change_vocabulary=change_vocabulary, change_clause=change_clause, contexts=pieces[k-2:k])]
                     '''
-                    candidates += self.get_adaptation(
+                    new_candidates += self.get_adaptation(
                         piece, target_level=target_level, target_adjustment=target_adjustment, n=max(n_per_call,n-len(candidates)), 
                         change_vocabulary=change_vocabulary, change_clause=change_clause, model=model)
+                    if len(new_candidates)==0:
+                        n_self_try -= 1
+                    else:
+                        candidates += new_candidates
                 except Exception as e:
                     n_self_try -= 1
                     if n_self_try==0:
