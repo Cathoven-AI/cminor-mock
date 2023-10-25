@@ -3001,14 +3001,17 @@ class AdoTextAnalyzer(object):
             return sentence
 
 class AdoVideoAnalyzer(object):
-    from faster_whisper import WhisperModel
     def __init__(self, text_analyser, temp_dir='temp'):
         self.analyser = text_analyser
-        if torch.cuda.is_available():
-            self.model = self.WhisperModel('medium.en', device="cuda", compute_type="float16")
-        else:
-            self.model = self.WhisperModel('medium.en', device="cpu", compute_type="int8")
+        self.model = None
         self.temp_dir = temp_dir
+
+    def load_model(self):
+        from faster_whisper import WhisperModel
+        if torch.cuda.is_available():
+            self.model = WhisperModel('medium.en', device="cuda", compute_type="float16")
+        else:
+            self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
     def get_video_info(self,url):
         ydl_opts = {'subtitleslangs':True}
@@ -3058,6 +3061,9 @@ class AdoVideoAnalyzer(object):
             return None, None
 
     def transcribe_video(self, url, video_id=None):
+        if self.model is None:
+            self.load_model()
+
         if video_id is None:
             filename = '%(id)s.mp3'
         else:
