@@ -156,7 +156,7 @@ class AdoLevelAdaptor(object):
                             piece, target_level=target_level, target_adjustment=target_adjustment, 
                             change_vocabulary=change_vocabulary, change_clause=change_clause, contexts=pieces[k-2:k])]
                     '''
-                    new_candidates += self.get_adaptation(
+                    new_candidates = self.get_adaptation(
                         piece, target_level=target_level, target_adjustment=target_adjustment, n=max(n_per_call,n-len(candidates)), 
                         change_vocabulary=change_vocabulary, change_clause=change_clause, model=model)
                     if len(new_candidates)==0:
@@ -247,7 +247,6 @@ class AdoLevelAdaptor(object):
             return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model=model)
 
         self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
-
 
 
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
