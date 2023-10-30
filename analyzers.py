@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests
+import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests, torch
 from textacy import text_stats, extract
 from collections import Counter
 import Levenshtein as lev
@@ -981,14 +981,14 @@ class AdoTextAnalyzer(object):
                     ('be being done', 'ind. (present)'):'Present continuous passive',
                     ('do', 'ger.'):'Gerund simple',
                     ('do', 'part. (past)'):'Past participle simple',
-                    ('be done', 'ger.'):'Gerund perfect',
+                    ('be done', 'ger.'):'Gerund simple passive',
                     ('be doing', 'inf.'):'Infinitive continuous',
                     ('have done', 'inf.'):'Infinitive perfect',
                     ('have been doing', 'ind. (past)'):'Past perfect continuous',
                     ('have been done', 'ind. (past)'):'Past perfect passive',
                     ('be being done', 'ind. (past)'):'Past continuous passive',
                     ('have been done', 'inf.'):'Infinitive perfect passive',
-                    ('have done', 'ger.'):'Gerund perfect passive',
+                    ('have done', 'ger.'):'Gerund perfect',
                     ('have been doing', 'inf.'):'Infinitive perfect continuous',
                     ('have been doing', 'ger.'):'Gerund perfect continuous',
                     ('have been done', 'ger.'):'Gerund perfect passive'}
@@ -3001,16 +3001,30 @@ class AdoTextAnalyzer(object):
             return sentence
 
 class AdoVideoAnalyzer(object):
-    from faster_whisper import WhisperModel
     def __init__(self, text_analyser, temp_dir='temp'):
         self.analyser = text_analyser
-        self.model = self.WhisperModel('medium.en', device="cuda", compute_type="float16")
+        self.model = None
         self.temp_dir = temp_dir
+
+    def load_model(self):
+        from faster_whisper import WhisperModel
+        if torch.cuda.is_available():
+            self.model = WhisperModel('medium.en', device="cuda", compute_type="float16")
+        else:
+            self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
     def get_video_info(self,url):
         ydl_opts = {'subtitleslangs':True}
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=False)
+        n_trials = 3
+        while n_trials>0:
+            try:
+                with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                    info_dict = ydl.extract_info(url, download=False)
+                break
+            except Exception as e:
+                n_trials -= 1
+                if n_trials == 0:
+                    raise Exception(e)
         text = None
         lines = None
         duration = None
@@ -3047,6 +3061,9 @@ class AdoVideoAnalyzer(object):
             return None, None
 
     def transcribe_video(self, url, video_id=None):
+        if self.model is None:
+            self.load_model()
+
         if video_id is None:
             filename = '%(id)s.mp3'
         else:
