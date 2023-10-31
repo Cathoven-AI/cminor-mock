@@ -2331,7 +2331,7 @@ class AdoTextAnalyzer(object):
             cumsum = np.cumsum([Counter(levels).get(i,0) for i in range(minimum,maximum+1)])
             cumsum = cumsum/cumsum[-1]
             for i in range(len(cumsum)-1):
-                if cumsum[i]==0.95:
+                if cumsum[i]>=0.95:
                     return i+minimum
                 elif cumsum[i+1]>0.95:
                     return i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i])
@@ -3014,8 +3014,8 @@ class AdoVideoAnalyzer(object):
             self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
     def get_video_info(self,url):
-        ydl_opts = {'subtitleslangs':True}
-        n_trials = 3
+        ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
+        n_trials = 5
         while n_trials>0:
             try:
                 with youtube_dl.YoutubeDL(ydl_opts) as ydl:
@@ -3079,12 +3079,24 @@ class AdoVideoAnalyzer(object):
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
+                'logger':YoutubeLogger(),
                 'outtmpl': self.temp_dir.strip('\\')+'/'+filename
             }
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-                info_dict = ydl.extract_info(url, download=True)
+
+            n_trials = 5
+            while n_trials>0:
+                try:
+                    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                        info_dict = ydl.extract_info(url, download=True)
+                    break
+                except Exception as e:
+                    n_trials -= 1
+                    if n_trials == 0:
+                        raise Exception(e)
+
             if video_id is None:
                 filename = info_dict['id']+'.mp3'
+            print("Transcribing ...")
             segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
 
         segments = list(segments)
@@ -3123,3 +3135,13 @@ class AdoVideoAnalyzer(object):
         final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
         result['final_levels'] = final_levels
         return result
+    
+class YoutubeLogger(object):
+    def debug(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        print(msg)
