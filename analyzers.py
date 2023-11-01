@@ -3107,14 +3107,19 @@ class AdoVideoAnalyzer(object):
             segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
 
         segments = list(segments)
-        text = ''
+        transcription = ''
         lines = []
         speak_duration = 0
         for x in segments:
-            text += x.text
-            lines.append({'start':x.start,'end':x.end,'text':x.text.strip(' ')})
+            line = x.text.strip(' ')
+            if line=='' or line.lower()=='music':
+                continue
+            if line[-1].isalpha():
+                line += '.'
+            transcription += x.text + ' '
+            lines.append({'start':x.start,'end':x.end,'text':line})
             speak_duration += x.end-x.start
-        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':text, 'subtitles':lines, 'speak_duration':speak_duration}
+        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
         return min(max(0,spm*0.0595-9.9931),6)
