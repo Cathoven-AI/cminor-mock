@@ -3030,11 +3030,17 @@ class AdoVideoAnalyzer(object):
         duration = None
         all_subtitles = info_dict.get('subtitles')
         if all_subtitles is not None:
-            en_subtitles = all_subtitles.get('en')
+            en_subtitles = None
+            for k,v in all_subtitles.items():
+                if k.startswith('en'):
+                    en_subtitles = v
             if en_subtitles is not None:
+                text = ''
                 lines, duration = self.download_subtitles(en_subtitles)
-                text = ' '.join([x['text'] for x in lines])
-        return {'id':info_dict.get('id'),'title':info_dict.get('title'), 'text':text, 'subtitles':lines, 'speak_duration':duration}
+                for line in lines:
+                    line['text'] = line['text'].replace('\ufeff','').replace('\xa0','').strip(' ')
+                    text += line['text']+' '
+        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':text, 'subtitles':lines, 'speak_duration':duration}
 
 
     def download_subtitles(self,subtitles):
@@ -3069,6 +3075,7 @@ class AdoVideoAnalyzer(object):
         else:
             filename = video_id+'.mp3'
 
+        info_dict = {}
         try:
             segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
         except:
@@ -3107,7 +3114,7 @@ class AdoVideoAnalyzer(object):
             text += x.text
             lines.append({'start':x.start,'end':x.end,'text':x.text.strip(' ')})
             speak_duration += x.end-x.start
-        return {'subtitles':lines, 'transcription':text, 'speak_duration':speak_duration}
+        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':text, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
         return min(max(0,spm*0.0595-9.9931),6)
@@ -3135,6 +3142,28 @@ class AdoVideoAnalyzer(object):
         final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
         result['final_levels'] = final_levels
         return result
+    
+    def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True):
+        print('Getting video info')
+        info = self.get_video_info(url)
+        if not transcribe:
+            if info['text'] is None:
+                if not auto_transcribe:
+                    raise Exception("No subtitles found. Please transcribe.")
+            else:
+                print('Analysing audio')
+                result = self.analyze_audio(info['text'],info['speak_duration'])
+                result['video_info'] = info
+                return result
+        print('Preparing to transcribing')
+        transcription = self.transcribe_video(url, info['video_id'])
+        print('Analysing audio')
+        result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+        info.update(transcription)
+        result['video_info'] = info
+        return result
+
+
     
 class YoutubeLogger(object):
     def debug(self, msg):
