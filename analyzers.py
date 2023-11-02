@@ -3121,6 +3121,25 @@ class AdoVideoAnalyzer(object):
             speak_duration += x.end-x.start
         return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
+    def transcribe_audio(self, file_path):
+        if self.model is None:
+            self.load_model()
+        segments, _ = self.model.transcribe(file_path, beam_size=5, language='en', word_timestamps=True)
+        segments = list(segments)
+        transcription = ''
+        lines = []
+        speak_duration = 0
+        for x in segments:
+            line = x.text.strip(' ')
+            if line=='' or line.lower()=='music':
+                continue
+            if line[-1].isalpha():
+                line += '.'
+            transcription += x.text + ' '
+            lines.append({'start':x.start,'end':x.end,'text':line})
+            speak_duration += x.end-x.start
+        return {'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
+
     def spm_level(self, spm):
         return min(max(0,spm*0.0595-9.9931),6)
 
@@ -3167,7 +3186,13 @@ class AdoVideoAnalyzer(object):
         info.update(transcription)
         result['video_info'] = info
         return result
-
+    
+    def analyze_audio_file(self, file_path):
+        print('Preparing to transcribing')
+        transcription = self.transcribe_audio(file_path)
+        print('Analysing audio')
+        result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+        return result
 
     
 class YoutubeLogger(object):
