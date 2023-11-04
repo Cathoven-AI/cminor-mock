@@ -3187,11 +3187,19 @@ class AdoVideoAnalyzer(object):
         result['video_info'] = info
         return result
     
-    def analyze_audio_file(self, file_path):
+    def analyze_audio_file(self, file_path,
+                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
         print('Preparing to transcribing')
         transcription = self.transcribe_audio(file_path)
         print('Analysing audio')
-        result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+        result = self.analyze_audio(transcription['text'],transcription['speak_duration'],
+                                    propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                                    return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                                    return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                                    return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
         return result
 
     
