@@ -122,17 +122,18 @@ class AdoTextGenerator(object):
         self.openai_api_key = openai_api_key
         self.analyser = text_analyser
 
-    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
-                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,ignore_keywords=True,
+                    propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                    return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                    return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
             openai.api_key = self.openai_api_key
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
-        if keywords:
+        if keywords and ignore_keywords:
             custom_dictionary = {x:-1 for x in keywords}
         else:
             custom_dictionary = {}
