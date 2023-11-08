@@ -122,11 +122,36 @@ class AdoTextGenerator(object):
         self.openai_api_key = openai_api_key
         self.analyser = text_analyser
 
+        self.grammar_description = {'present simple passive':'is/are (not) done',
+                                    'present continuous':'is/are (not) doing',
+                                    'present continuous passive':'is/are (not) being done',
+                                    'present perfect':'have/has (not) done',
+                                    'present perfect continuous':'have/has (not) been doing',
+                                    'present perfect passive':'have/has (not) been done',
+                                    'past simple passive':'was/were (not) done',
+                                    'past continuous':'was/were (not) doing',
+                                    'past continuous passive':'was/were (not) being done',
+                                    'past perfect':'had (not) done',
+                                    'past perfect continuous':'had (not) been doing',
+                                    'past perfect passive':'had (not) been done',
+                                    'gerund passive':'verb/preposition + being done',
+                                    'gerund perfect':'verb/preposition + having done',
+                                    'gerund perfect continuous':'verb/preposition + having been doing',
+                                    'gerund perfect passive':'verb/preposition + having been done',
+                                    'infinitive passive':'(not) to be done, can/could/should/... (not) be done',
+                                    'infinitive continuous':'(not) to be doing, can/could/should/... (not) be doing',
+                                    'infinitive perfect':'(not) to have done, can/could/should/... (not) have done',
+                                    'infinitive perfect continuous':'(not) to have been doing, can/could/should/... (not) have been doing',
+                                    'infinitive perfect passive':'(not) to have been done, can/could/should/... (not) have been done'}
+
     def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,ignore_keywords=True,
                     propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+        assert type(grammar)==list or grammar is None, "grammar must be a list of strings."
+        assert type(keywords)==list or keywords is None, "keywords must be a list of strings."
+        
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -137,10 +162,16 @@ class AdoTextGenerator(object):
             custom_dictionary = {x:-1 for x in keywords}
         else:
             custom_dictionary = {}
-        return self.execute_prompt(prompt,level,temp_results=[],propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
+        if grammar:
+            model = 'gpt-4'
+        else:
+            model = 'gpt-3.5-turbo'
+        return self.execute_prompt(prompt,level,temp_results=[],model=model,
+                                   propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
+                                   return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                                   return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,
+                                   return_clause_count=return_clause_count,return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
+                                   return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
@@ -155,7 +186,12 @@ class AdoTextGenerator(object):
         if keywords:
             requirements.append(f"It should include these words: {', '.join(keywords)}.")
         if grammar:
-            requirements.append(f"In terms of grammar, use {', '.join(grammar)} frequently.")
+            grammar_list = ''
+            for x in grammar:
+                grammar_list += '\t'+x
+                if x.lower() in grammar_list:
+                    grammar_list += ': '+self.grammar_description[x.lower()]+';\n'
+            requirements.append("Use these grammar structures many times:\n"+grammar_list)
         
         requirements.append(f"It should be around {n_words} words.")
         #requirements.append('''Don't use style text.''')
@@ -187,18 +223,17 @@ In the meantime, the text should meet the following requirements:
         
         return prompt.strip('\n').replace(' None ',' ')
 
-    def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
+    def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],model='gpt-3.5-turbo',
+                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                       return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
         if n_trials>=3:
-            model_name = "gpt-4"
-        else:
-            model_name = "gpt-3.5-turbo"
+            model = "gpt-4"
         completion = openai.ChatCompletion.create(
-            model=model_name,
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             n=1
         )
