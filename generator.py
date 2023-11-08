@@ -76,7 +76,7 @@ class AdoQuestionGenerator(object):
         while n_self_try>0:
             try:
                 completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
+                    model='gpt-4-1106-preview',#"gpt-3.5-turbo",
                     messages=messages_to_send
                 )
                 break
@@ -228,10 +228,11 @@ In the meantime, the text should meet the following requirements:
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                       return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+        model = 'gpt-4-1106-preview'
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
-        if n_trials>=3:
-            model = "gpt-4"
+        # if n_trials>=3:
+        #     model = "gpt-4"
         completion = openai.ChatCompletion.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],

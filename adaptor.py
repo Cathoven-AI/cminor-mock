@@ -257,13 +257,14 @@ class AdoLevelAdaptor(object):
 
         n_tokens = len(gpt_tokenizer.encode(prompt))
 
-        if model=="gpt-4":
-            model_name = "gpt-4"
-        else:
-            if n_tokens>4000:
-                model_name = "gpt-3.5-turbo-16k"
-            else:
-                model_name = "gpt-3.5-turbo"
+        # if model=="gpt-4":
+        #     model_name = "gpt-4"
+        # else:
+        #     if n_tokens>4000:
+        #         model_name = "gpt-3.5-turbo-16k"
+        #     else:
+        #         model_name = "gpt-3.5-turbo"
+        model_name = 'gpt-4-1106-preview'
 
         completion = openai.ChatCompletion.create(
             model=model_name, n=n,
