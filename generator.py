@@ -5,8 +5,8 @@ class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
         self.openai_api_key = openai_api_key
 
-    def generate_questions(self, text, n=10, kind='multiple_choice', auto_retry=3, override_messages=None):
-
+    def generate_questions(self, text, n=10, kind='multiple_choice', skill='reading', answer_position=False, explanation=False, language=None, auto_retry=3, override_messages=None):
+        n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
         if self.openai_api_key is None:
@@ -15,10 +15,37 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        if kind=='multiple_choice':
-            json_format = '''[{"question": "Why is this the case?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 0},{"question": "What is this?","choices": ["Some choice","Some choice","Some choice","Some choice"],"answer_index": 2}]'''
+        language_promt = ''
+        if language is not None:
+            language_promt = 'The questions should be created in '+language+'.'
 
-            content = f'''Your task is to generate high-order thinking multiple choice questions for a text. Each question has only one correct choice and three unambiguously incorrect choices.
+        if skill=='listening':
+            material = 'as a listening exercise for an audio recording'
+            material_format = 'Transcript'
+        else:
+            material = 'for a text'
+            material_format = 'Text'
+
+        if answer_position==True:
+            answer_position_prompt = 'The question should come with the portion of the original text that indicates the answer ("answer_position").'
+            answer_position_json = ', "answer_position": ...'
+        else:
+            answer_position_prompt = ''
+            answer_position_json = ''
+
+        if explanation==True:
+            explanation_prompt = 'The question should come with a short explanation of the answer ("explanation").'
+            explanation_json = ', "explanation": ...'
+        else:
+            explanation_prompt = ''
+            explanation_json = ''
+
+        if kind=='multiple_choice':
+            json_format = '''[{"question": "Why is this the case?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***answer_position_json******explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***answer_position_json******explanation_json***}]'''
+            json_format = json_format.replace('***answer_position_json***',answer_position_json)
+            json_format = json_format.replace('***explanation_json***',explanation_json)
+
+            content = f'''Your task is to generate high-order thinking multiple choice questions {material}. Each question has only one correct choice and three unambiguously incorrect choices. {answer_position_prompt} {explanation_prompt} {language_promt}
             Follow the steps:
             1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
             2. Verify each choice with the text to see if it can be the answer to the question.
@@ -34,13 +61,15 @@ class AdoQuestionGenerator(object):
             3. It can be parsed using ast.literal_eval in Python.
 
 
-            Text:
+            {material_format}:
             ```{text}```
             '''
-        elif kind=='essay_question':
-            json_format = '''[{"question": "Why is this the case?","answer": "Some answer"},{"question": "What is this?","answer": "Some answer"}]'''
+        elif kind=='essay_question' or kind=='short_answer':
+            json_format = '''[{"question": "Why is this the case?", "answer": "Some answer"***answer_position_json******explanation_json***}, {"question": "What is this?", "answer": "Some answer"***answer_position_json******explanation_json***}]'''
+            json_format = json_format.replace('***answer_position_json***',answer_position_json)
+            json_format = json_format.replace('***explanation_json***',explanation_json)
 
-            content = f'''Your task is to generate high-order thinking short answer questions for a text. Each question has only one correct answer.
+            content = f'''Your task is to generate high-order thinking short answer questions {material}. Each question has only one correct answer. {answer_position_prompt} {explanation_prompt} {language_promt}
 
             Answer rules:
             1. Use short phrases when possible. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
@@ -61,7 +90,40 @@ class AdoQuestionGenerator(object):
             2. It can be parsed using ast.literal_eval in Python.
 
 
-            Text:
+            {material_format}:
+            ```{text}```
+            '''
+
+        elif kind=='true_false' or kind=='true_false_not_given':
+            json_format = '''[{"question": statement 1, "answer": False***answer_position_json******explanation_json***}, {"question": statement 2,"answer": True***answer_position_json******explanation_json***}, ...]'''
+            json_format = json_format.replace('***answer_position_json***',answer_position_json)
+            json_format = json_format.replace('***explanation_json***',explanation_json)
+
+            if kind=='true_false_not_given':
+                question_type = 'True/False/Not Given'
+                question_rule2 = '2. The number of the three answers should be balanced.'
+                question_rule3 = '3. For "Not Given" statements, the "answer_position" should be "N/A"'
+            else:
+                question_type = 'True/False'
+                question_rule2 = '2. The number of the two answers should be balanced.'
+                question_rule3 = ''
+            
+
+            content = f'''Your task is to generate high-order thinking {question_type} questions for {material}. {answer_position_prompt} {explanation_prompt} {language_promt}
+
+            Question rules:
+            1. The statement in the question should not be the original sentence from the text. You should paraphrase and write it with your own words.
+            {question_rule2}
+            {question_rule3}
+
+            After you generate {n} questions, arrange them as a Python list of dictionaries with keys "question" and "answer", like this:
+            ```{json_format}```
+
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one question with keys "question" and "answer".
+            2. It can be parsed using ast.literal_eval in Python.
+
+            {material_format}:
             ```{text}```
             '''
 
@@ -106,7 +168,6 @@ class AdoQuestionGenerator(object):
         return questions
     
     def parse_questions(self, response):
-        print(response)
         try:
             response = response[response.index('['):response.rfind(']')+1]
             questions = ast.literal_eval(response)
