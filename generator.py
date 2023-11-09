@@ -86,7 +86,7 @@ class AdoQuestionGenerator(object):
                     return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                 print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
-        response = completion['choices'][0]['message']['content'].strip()
+        response = completion['choices'][0]['message']['content'].strip(' `')
         questions = self.parse_questions(response)
 
         if questions is None:
@@ -106,6 +106,7 @@ class AdoQuestionGenerator(object):
         return questions
     
     def parse_questions(self, response):
+        print(response)
         try:
             response = response[response.index('['):response.rfind(']')+1]
             questions = ast.literal_eval(response)
@@ -158,10 +159,14 @@ class AdoTextGenerator(object):
         else:
             openai.api_key = self.openai_api_key
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
+
+        custom_dictionary = {}
         if keywords and ignore_keywords:
-            custom_dictionary = {x:-1 for x in keywords}
-        else:
-            custom_dictionary = {}
+            for x in keywords:
+                if type(x)==str:
+                    custom_dictionary[x] = -1
+                else:
+                    custom_dictionary[tuple(x)] = -1
         if grammar:
             model = 'gpt-4'
         else:
@@ -184,7 +189,13 @@ class AdoTextGenerator(object):
         if genre:
             requirements.append(f"The genre (or type of text) is {genre}.")
         if keywords:
-            requirements.append(f"It should include these words: {', '.join(keywords)}.")
+            keywords_to_join = []
+            for x in keywords:
+                if type(x)==str:
+                    keywords_to_join.append(x)
+                else:
+                    keywords_to_join.append(f'{x[0]} ({x[1]})')
+            requirements.append(f"It should include these words: {', '.join(keywords_to_join)}.")
         if grammar:
             grammar_list = ''
             for x in grammar:
@@ -195,7 +206,7 @@ class AdoTextGenerator(object):
         
         requirements.append(f"It should be around {n_words} words.")
         #requirements.append('''Don't use style text.''')
-        requirements.append('''Only return the text. Don't include other notes or comments.''')
+        requirements.append('''Arrange the result in json format like this:\n```{"text": the text}```\nIt should be parsed directly. Don't include other notes, tags or comments.''')
         
         if level<=2:
             prompt = f'''
@@ -238,7 +249,8 @@ In the meantime, the text should meet the following requirements:
             messages=[{"role": "user", "content": prompt}],
             n=1
         )
-        text = completion['choices'][0]['message']['content'].strip()
+        print(completion['choices'][0]['message']['content'])
+        text = self.parse_response(completion['choices'][0]['message']['content'])
         result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
@@ -271,3 +283,17 @@ In the meantime, the text should meet the following requirements:
                 lines[0] = lines[0][1:-1]
                 text = '\n'.join(lines)
             return {'text':text, 'result':result}
+
+    def parse_response(self, response):
+        response = response[response.index('{'):response.rfind('}')+1]
+        text = json.loads(response, strict=False)['text']
+        try:
+            response = response[response.index('{'):response.rfind('}')+1]
+            text = json.loads(response, strict=False)['text']
+        except:
+            try:
+                response = response[response.index('{'):response.rfind('}')+1]
+                text = ast.literal_eval(response)['text']
+            except:
+                return None
+        return text
