@@ -101,7 +101,7 @@ class AdoQuestionGenerator(object):
 
             if kind=='true_false_not_given':
                 question_type = 'True/False/Not Given'
-                question_rule2 = '2. The number of the three answers should be balanced.'
+                question_rule2 = '2. The number of the three answers should be balanced. And there should be at least one "Not Given" statement.'
                 question_rule3 = '3. For "Not Given" statements, the "answer_position" should be "N/A"'
             else:
                 question_type = 'True/False'
@@ -243,6 +243,7 @@ class AdoTextGenerator(object):
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
         target_level = int2cefr[level]
         max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
+        min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
         requirements = ['There should not be a title.']
 
         if topic:
@@ -274,7 +275,7 @@ class AdoTextGenerator(object):
 You task is to use simple language to write a text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
 
 {target_level} level texts should meet these requirements:
-1. Each sentence is not longer than {max_length} words.
+1. Each sentence has {min_length} to {max_length} words.
 2. The vocabulary should be simple and below CEFR {target_level} level.
 
 In the meantime, the text should meet the following requirements:
@@ -284,7 +285,7 @@ In the meantime, the text should meet the following requirements:
 You task is to write a {genre} text at CEFR {target_level} level.
 
 {target_level} level texts should meet these requirements:
-1. Each sentence is not longer than {max_length} words.
+1. Each sentence has {min_length} to {max_length} words.
 2. The vocabulary should not be more difficult than CEFR {target_level} level.
 
 In the meantime, the text should meet the following requirements:
