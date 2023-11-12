@@ -20,6 +20,10 @@ class AdoLevelAdaptor(object):
             return None
         else:
             openai.api_key = self.openai_api_key
+
+        if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
 
         self.t0 = time.time()
@@ -246,7 +250,8 @@ class AdoLevelAdaptor(object):
         if auto_retry and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
             return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model=model)
 
-        self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
+        self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels,
+        'before_str':{k,float2cefr(v) for k,v in before_levels.items()},'after_str':{k,float2cefr(v) for k,v in after_levels.items()}}
 
 
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
@@ -412,3 +417,12 @@ For each sentence, follow these rules:
                     return ''
             prompt = prompt+f"\nPassage:\n```{text}```"
         return prompt
+
+
+def float2cefr(num):
+    cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+    output = cefr.get(int(num),"Native")
+    if num<6:
+        s = "%.1f" % num
+        output += s[s.index('.'):]
+    return output

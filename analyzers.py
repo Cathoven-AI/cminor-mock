@@ -22,6 +22,7 @@ from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
+from ftlangdetect import detect
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
 # Lexile files
@@ -149,6 +150,10 @@ class AdoTextAnalyzer(object):
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True,return_modified_final_levels=False):
+
+        if detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+
         text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
@@ -196,6 +201,10 @@ class AdoTextAnalyzer(object):
             return self.readability.result
 
     def analyze_catile(self,text,return_result=False):
+
+        if detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+            
         text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
@@ -1347,7 +1356,7 @@ class AdoTextAnalyzer(object):
                 tense2 = 'ind. (past)'
             elif form == 'do do' and x.i>=3 and self.shared_object.doc[x.i-1].lemma_=='you' and self.shared_object.doc[x.i-2].lemma_=='not' and self.shared_object.doc[x.i-3].lemma_=='do' and all([child.orth_!='?' for child in x.children if x.i<child.i]):
                 tense2 = 'imp.'
-            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets'])])>0:
+            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets','get'])])>0:
                 tense2 = 'ind. (present)'
             elif form=='do':
                 first = x
@@ -2222,10 +2231,12 @@ class AdoTextAnalyzer(object):
                             modified_vocabulary_level = self.estimate_95(df_lemma_temp2['CEFR'].values)
                             modified_average_level = (modified_vocabulary_level+tense_level+clause_level)/3
                             modified_general_level = max([modified_vocabulary_level,tense_level,modified_average_level,clause_level-0.5])
-                            modified_final_levels.append({'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
+                            temp = {'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
                                                                                                         'vocabulary_level':min(round(modified_vocabulary_level,1),6),
                                                                                                         'tense_level':min(round(tense_level,1),6),
-                                                                                                        'clause_level':min(clause_level,6)}})
+                                                                                                        'clause_level':min(clause_level,6)}}
+                            temp['final_levels_str'] = {k:float2cefr(v) for k,v in temp['final_levels'].items()}
+                            modified_final_levels.append(temp)
                             if modified_vocabulary_level<=min(buttom_level,int(buttom_level)+0.5):
                                 break
 
@@ -2273,6 +2284,7 @@ class AdoTextAnalyzer(object):
                 #self.clause_count = clause_count
             if self.__settings['return_final_levels']:
                 result_dict['final_levels'] = final_levels
+                result_dict['final_levels_str'] = {k:float2cefr(v) for k,v in final_levels.items()}
             if self.__settings['return_modified_final_levels']:
                 result_dict['modified_final_levels'] = modified_final_levels
                 #self.final_levels = final_levels
@@ -3165,6 +3177,7 @@ class AdoVideoAnalyzer(object):
         final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
         final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
         result['final_levels'] = final_levels
+        result['final_levels_str'] = {k:float2cefr(v) for k,v in final_levels.items()}
         return result
     
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True):
@@ -3212,3 +3225,12 @@ class YoutubeLogger(object):
 
     def error(self, msg):
         print(msg)
+
+
+def float2cefr(num):
+    cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+    output = cefr.get(int(num),"Native")
+    if num<6:
+        s = "%.1f" % num
+        output += s[s.index('.'):]
+    return output
