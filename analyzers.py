@@ -186,6 +186,13 @@ class AdoTextAnalyzer(object):
 
     def analyze_readability(self,text,language='en',return_result=False):
         text = self.clean_text(text)
+        if language=='en':
+            detected_language = detect(text.replace('\n',' '))['lang']
+            if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
+                raise Exception("Language not supported.")
+            else:
+                language = detected_language
+
         if text!=self.text:
             self.doc = None
             self.cefr = None
