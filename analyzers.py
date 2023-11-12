@@ -184,7 +184,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.cefr.result
 
-    def analyze_readability(self,text,language='en',return_result=False):
+    def analyze_readability(self,text,language='en',return_grades=False,return_result=False):
         text = self.clean_text(text)
         if language=='en':
             detected_language = detect(text.replace('\n',' '))['lang']
@@ -193,7 +193,7 @@ class AdoTextAnalyzer(object):
             else:
                 language = detected_language
 
-        if text!=self.text:
+        if text!=self.text or self.readability is None or self.readability.return_grades!=return_grades:
             self.doc = None
             self.cefr = None
             self.readability = None
@@ -203,6 +203,7 @@ class AdoTextAnalyzer(object):
             self.text = text
         if self.readability is None:
             self.readability = self.ReadabilityAnalyzer(self)
+            self.readability.return_grades = return_grades
             self.readability.start_analyze(language)
         if return_result:
             return self.readability.result
@@ -2414,6 +2415,7 @@ class AdoTextAnalyzer(object):
         def __init__(self,outer):
             self.shared_object = outer
             self.result = None
+            self.return_grades=False
 
         def start_analyze(self,language='en'):
             '''
@@ -2453,26 +2455,18 @@ class AdoTextAnalyzer(object):
 
             text = self.shared_object.text
             if language=='es':
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'fernandez_huerta':textstat.fernandez_huerta(text),
                         'szigriszt_pazos':textstat.szigriszt_pazos(text),
                         'gutierrez_polini':textstat.gutierrez_polini(text),
-                        'crawford':textstat.crawford(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                        'crawford':textstat.crawford(text)}
             elif language=="it":
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
-                        'gulpease_index':textstat.gulpease_index(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                        'gulpease_index':textstat.gulpease_index(text)}
             elif language=="pl":
-                self.result = {'gunning_fog':textstat.gunning_fog(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'gunning_fog':textstat.gunning_fog(text)}
             elif language in set(['de','fr','nl','ru']):
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text)}
             else:
                 result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'flesch_kincaid_grade':textstat.flesch_kincaid_grade(text),
@@ -2483,13 +2477,27 @@ class AdoTextAnalyzer(object):
                         'coleman_liau_index':textstat.coleman_liau_index(text),
                         'linsear_write_formula':textstat.linsear_write_formula(text),
                         #'text_standard':textstat.text_standard(text, float_output=True),
-                        'spache_readability':textstat.spache_readability(text),
-                        'mcalpine_eflaw':textstat.mcalpine_eflaw(text),
-                        #'reading_time':textstat.reading_time(text, ms_per_char=14.69),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                        'mcalpine_eflaw':textstat.mcalpine_eflaw(text)}
+                if result['dale_chall_readability_score']<5:
+                    result['spache_readability'] = textstat.spache_readability(text)
                 result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
+            
+
+            if self.return_grades:
+                grades = {k:general_float2grade(v) for k,v in result.items()}
+                if 'dale_chall_readability_score' in result:
+                    grades['dale_chall_readability_score'] = dale_chall_float2grade(result['dale_chall_readability_score'])
+                if 'spache_readability' in result:
+                    grades['spache_readability'] = spache_float2grade(result['spache_readability'])
+                result['lexicon_count'] = textstat.lexicon_count(text, removepunct=True)
+                result['sentence_count'] = textstat.sentence_count(text)
+                self.result = {'scores':result,'grades':grades}
+            else:
+                result['lexicon_count'] = textstat.lexicon_count(text, removepunct=True)
+                result['sentence_count'] = textstat.sentence_count(text)
                 self.result = result
+
+
 
     class CefrSimplifier(object):
 
@@ -3241,3 +3249,41 @@ def float2cefr(num):
         s = "%.1f" % num
         output += s[s.index('.'):]
     return output
+
+def general_float2grade(num):
+    rounded = int(num)
+    if num>12:
+        return "College and above"
+    elif num>=4:
+        return f"{rounded}th to {rounded+1}th grade"
+    elif num>=3:
+        return "3rd to 4th grade"
+    elif num>=2:
+        return "2nd to 3rd grade"
+    elif num>=1:
+        return "1st to 2nd grade"
+    else:
+        return "Below 1st grade"
+
+
+def dale_chall_float2grade(num):
+    rounded = int(num*2-5)
+    if num<5:
+        return "4th grade or below"
+    elif num<9:
+        return f"{rounded}th to {rounded+1}th grade"
+    else:
+        return "College and above"
+
+def spache_float2grade(num):
+    rounded = int(num)
+    if num>=4:
+        return "4th grade or above";
+    elif num>=3:
+        return "3rd to 4th grade"
+    elif num>=2:
+        return "2nd to 3rd grade"
+    elif num>=1:
+        return "1st to 2nd grade"
+    else:
+        return "Below 1st grade"
