@@ -145,6 +145,7 @@ class AdoTextAnalyzer(object):
         self.simplifier = None
         self.adaptor = None
         self.openai_api_key = openai_api_key
+        self.detect = detect
 
     def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
@@ -3287,3 +3288,11 @@ def spache_float2grade(num):
         return "1st to 2nd grade"
     else:
         return "Below 1st grade"
+
+def float2hsk(num):
+    if num>=7:
+        return "Native"
+    elif num>=6:
+        return "HSK7-9"
+    else:
+        return f"HSK{int(num)+1}"
