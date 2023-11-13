@@ -262,8 +262,10 @@ class AdoTextGenerator(object):
             grammar_list = ''
             for x in grammar:
                 grammar_list += '\t'+x
-                if x.lower() in grammar_list:
+                if x.lower() in self.grammar_description:
                     grammar_list += ': '+self.grammar_description[x.lower()]+';\n'
+                else:
+                    grammar_list += ';\n'
             requirements.append("Use these grammar structures many times:\n"+grammar_list)
         
         requirements.append(f"It should be around {n_words} words.")
