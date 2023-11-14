@@ -156,7 +156,7 @@ class AdoTextAnalyzer(object):
             raise Exception("Language not supported. Please use English.")
 
         text = self.clean_text(text)
-        if text!=self.text:
+        if text!=self.text or custom_dictionary!={}:
             self.doc = None
             self.cefr = None
             self.readability = None
@@ -177,6 +177,7 @@ class AdoTextAnalyzer(object):
                 for x in self.doc:
                     x = fine_lemmatize(x,self.doc,nlp)
             self.cefr = self.CefrAnalyzer(self)
+
             self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
