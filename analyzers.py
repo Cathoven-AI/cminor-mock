@@ -177,7 +177,6 @@ class AdoTextAnalyzer(object):
                 for x in self.doc:
                     x = fine_lemmatize(x,self.doc,nlp)
             self.cefr = self.CefrAnalyzer(self)
-
             self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
@@ -3043,6 +3042,38 @@ class AdoVideoAnalyzer(object):
             self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
     def get_video_info(self,url):
+        def parse(info_dict):
+            text = None
+            lines = None
+            duration = None
+            all_subtitles = info_dict.get('subtitles')
+            if all_subtitles is not None:
+                en_subtitles = None
+                for k,v in all_subtitles.items():
+                    if k.startswith('en'):
+                        en_subtitles = v
+                if en_subtitles is not None:
+                    text = ''
+                    lines, duration = self.download_subtitles(en_subtitles)
+                    for line in lines:
+                        line['text'] = line['text'].replace('\ufeff','').replace('\xa0','').strip(' ')
+                        text += line['text']+' '
+            video_id = info_dict.get('id')
+            return {
+                'video_id':video_id,
+                'title':info_dict.get('title'),
+                'url':info_dict.get('webpage_url'),
+                'upload_date':info_dict.get('upload_date'),
+                'duration':info_dict.get('duration'),
+                'channel_id':info_dict.get('channel_id'),
+                'channel':info_dict.get('channel'),
+                'uploader_id':info_dict.get('uploader_id'),
+                'age_limit':info_dict.get('age_limit'),
+                'categories':info_dict.get('categories'),
+                'text':text,
+                'subtitles':lines,
+                'speak_duration':duration}
+
         ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
         n_trials = 5
         while n_trials>0:
@@ -3054,22 +3085,12 @@ class AdoVideoAnalyzer(object):
                 n_trials -= 1
                 if n_trials == 0:
                     raise Exception(e)
-        text = None
-        lines = None
-        duration = None
-        all_subtitles = info_dict.get('subtitles')
-        if all_subtitles is not None:
-            en_subtitles = None
-            for k,v in all_subtitles.items():
-                if k.startswith('en'):
-                    en_subtitles = v
-            if en_subtitles is not None:
-                text = ''
-                lines, duration = self.download_subtitles(en_subtitles)
-                for line in lines:
-                    line['text'] = line['text'].replace('\ufeff','').replace('\xa0','').strip(' ')
-                    text += line['text']+' '
-        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':text, 'subtitles':lines, 'speak_duration':duration}
+
+        if 'entries' in info_dict:
+            return [parse(x) for x in info_dict['entries']]
+        else:
+            return parse(info_dict)
+
 
 
     def download_subtitles(self,subtitles):
@@ -3199,23 +3220,31 @@ class AdoVideoAnalyzer(object):
     
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True):
         print('Getting video info')
-        info = self.get_video_info(url)
-        if not transcribe:
-            if info['text'] is None:
-                if not auto_transcribe:
-                    raise Exception("No subtitles found. Please transcribe.")
-            else:
-                print('Analysing audio')
-                result = self.analyze_audio(info['text'],info['speak_duration'])
-                result['video_info'] = info
-                return result
-        print('Preparing to transcribing')
-        transcription = self.transcribe_video(url, info['video_id'])
-        print('Analysing audio')
-        result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
-        info.update(transcription)
-        result['video_info'] = info
-        return result
+        infos = self.get_video_info(url)
+        if type(infos)!=list:
+            infos = [infos]
+        n = len(infos)
+
+        results = []
+        for i, x in enumerate(infos):
+            print(f'Analysing video {i+1}/{n}')
+            if not transcribe:
+                if x['text'] is None:
+                    if not auto_transcribe:
+                        results.append({'video_info':x,'result':{'error':'No subtitles found. Please transcribe.'}})
+                        continue
+                else:
+                    result = self.analyze_audio(x['text'],x['speak_duration'])
+                    results.append({'video_info':x,'result':result})
+                    continue
+            transcription = self.transcribe_video(x['url'], x['video_id'])
+            result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+            x.update(transcription)
+            results.append({'video_info':x,'result':result})
+        if n==1:
+            return results[0]
+        else:
+            return results
     
     def analyze_audio_file(self, file_path,
                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
