@@ -274,10 +274,10 @@ class AdoTextGenerator(object):
         
         if level<=2:
             prompt = f'''
-You task is to use simple language to write a text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
+You task is to write a text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
 
 {target_level} level texts should meet these requirements:
-1. Each sentence has {min_length} to {max_length} words.
+1. Each sentence has no less than {min_length} words and no more than {max_length} words.
 2. The vocabulary should be simple and below CEFR {target_level} level.
 
 In the meantime, the text should meet the following requirements:
@@ -313,7 +313,6 @@ In the meantime, the text should meet the following requirements:
             messages=[{"role": "user", "content": prompt}],
             n=1
         )
-        print(completion['choices'][0]['message']['content'])
         text = self.parse_response(completion['choices'][0]['message']['content'])
         result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
