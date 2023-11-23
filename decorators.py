@@ -1,3 +1,6 @@
+import Levenshtein as lev
+import numpy as np
+
 def baidu_cefr_decorator(func):
     def inner(*args, **kwargs):
         params = {'return_sentences':False, 'return_wordlists':False,'return_vocabulary_stats':False,
@@ -125,6 +128,94 @@ def baidu_text_generator_decorator(func):
                   level_str_to_cn(result['result']['final_levels_str']['clause_level']))
         return {'message':message+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
     return inner
+
+
+def baidu_question_generator_decorator(func):
+    def inner(*args, **kwargs):
+        kind = kwargs.get('kind','multiple_choice')
+        kinds_cn = {'multiple choice':'multiple_choice',
+                    '选择题':'multiple_choice',
+                    '单选题':'multiple_choice',
+                    '单项选择题':'multiple_choice',
+                    '单选':'multiple_choice',
+                    '填词':'sentence_completion',
+                    '填词题':'sentence_completion',
+                    '填空':'sentence_completion',
+                    '填空题':'sentence_completion',
+                    '单词填空题':'sentence_completion',
+                    '判断题':'true_false',
+                    '判断':'true_false',
+                    '判断对错':'true_false',
+                    'true or false':'true_false',
+                    '对错':'true_false',
+                    'true false not given':'true_false_not_given',
+                    '简答题':'short_answer',
+                    '简答':'short_answer',
+                    '问答题':'short_answer',
+                    '问答':'short_answer'}
+        if kind in kinds_cn:
+            kind = kinds_cn[kind]
+        else:
+            keys = list(kinds_cn.keys())
+            k = np.argmin([lev.distance(kind, x) for x in keys])
+            kind = kinds_cn[keys[k]]
+
+        params = {'n':5, 'explanation':True,'explanation_language':'simplified Chinese','question_language':'English','answer_position':True,'kind':kind}
+        kwargs.update(params)
+        result = func(*args, **kwargs)
+
+        if kind == 'multiple_choice':
+            letters = ['A','B','C','D']
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result):
+                questions += f'{i+1}. {question["question"]}\n'
+                for j, choice in enumerate(question['choices']):
+                    questions += f'{letters[j]}. {choice}\n'
+                questions += '\n\n'
+                answers += f'{i+1}. {letters[question["answer_index"]]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+            message = f'''以下是生成的单选题\n\n{questions}\n答案：\n\n{answers}'''
+        elif kind == 'short_answer':
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result):
+                questions += f'{i+1}. {question["question"]}\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+            message = f'''以下是生成的简答题\n\n{questions}\n答案：\n\n{answers}'''
+        elif kind == 'true_false':
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result):
+                questions += f'{i+1}. {question["question"]}\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+            message = f'''以下是生成的判断题(True or False)\n\n{questions}\n答案：\n\n{answers}'''
+        elif kind == 'true_false_not_given':
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result):
+                questions += f'{i+1}. {question["question"]}\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+            message = f'''以下是生成的判断题(True/False/Not Given)\n\n{questions}\n答案：\n\n{answers}'''
+        elif kind == 'sentence_completion':
+            words = []
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result):
+                questions += f'{i+1}. {question["sentence"]}\n'
+                words.append(question['answer'])
+            index = np.arange(len(words))
+            np.random.shuffle(index)
+            for i, j in enumerate(index):
+                answers += f'{i+1}. {words[j]}\n'
+            words = ', '.join(words)
+            message = f'''以下是生成的填空题\n\n请用以下单词填空：{words}\n\n{questions}\n答案：\n\n{answers}'''
+        else:
+            message = '暂不支持该类型题目的生成。支持的题型有：单选题，判断题，简答题，单词填空题。'
+
+        return {'message':message+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
+
+    return inner
+
 
 def level_str_to_cn(s):
     parts = s.split('.')

@@ -5,7 +5,7 @@ class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
         self.openai_api_key = openai_api_key
 
-    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, language=None, auto_retry=3, override_messages=None):
+    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
@@ -27,10 +27,14 @@ class AdoQuestionGenerator(object):
         else:
             level_prompt = ''
 
-        language_promt = ''
-        if language is not None:
-            language_promt = 'The questions should be created in '+language+'.'
+        question_language_promt = ''
+        if question_language is not None:
+            question_language_promt = 'The questions should be created in '+question_language+'.'
             level_prompt = ''
+
+        explanation_language_promt = ''
+        if explanation==True and explanation_language is not None:
+            explanation_language_promt = 'The explanation should be written in '+explanation_language+'.'
 
         if skill=='listening':
             material = 'as a listening exercise for an audio recording'
@@ -59,7 +63,7 @@ class AdoQuestionGenerator(object):
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
 
-            content = f'''Your task is to generate high-order thinking multiple choice questions {material}. Each question has only one correct choice and three unambiguously incorrect choices. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking multiple choice questions {material}. Each question has only one correct choice and three unambiguously incorrect choices. {level_prompt} {answer_position_prompt} {explanation_prompt} {question_language_promt} {explanation_language_promt}
             Follow the steps:
             1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
             2. Verify each choice with the text to see if it can be the answer to the question.
@@ -84,7 +88,7 @@ class AdoQuestionGenerator(object):
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
 
-            content = f'''Your task is to generate high-order thinking short answer questions {material}. Each question has only one correct answer. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking short answer questions {material}. Each question has only one correct answer. {level_prompt} {answer_position_prompt} {explanation_prompt} {question_language_promt} {explanation_language_promt}
 
             Answer rules:
             1. Use short phrases when possible. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
@@ -125,7 +129,7 @@ class AdoQuestionGenerator(object):
                 question_rule3 = ''
             
 
-            content = f'''Your task is to generate high-order thinking {question_type} questions for {material}. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking {question_type} questions for {material}. {level_prompt} {answer_position_prompt} {explanation_prompt} {question_language_promt} {explanation_language_promt}
 
             Question rules:
             1. The statement in the question should not be the original sentence from the text. You should paraphrase and write it with your own words.
@@ -151,7 +155,7 @@ class AdoQuestionGenerator(object):
             else:
                 content = f'''Your task is to generate {n} sentence completion exercises for the important words in the {material_format}.'''
 
-            content += f''' {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}'''
+            content += f''' {level_prompt} {answer_position_prompt} {explanation_prompt} {explanation_language_promt}'''
 
             if text is not None:
                 content += ''' The sentence contexts should be similar to the original settings but should not be the same as the original. The meaning and part of speech of the words in the sentences should be the same as the original.\n\n'''
@@ -173,13 +177,13 @@ class AdoQuestionGenerator(object):
             else:
                 content = f'''Your task is to generate {n} definition match exercises for the important words in the {material_format}.'''
 
-            content += f''' {answer_position_prompt} {explanation_prompt} {language_promt} '''
+            content += f''' {answer_position_prompt} {explanation_prompt} {question_language_promt} '''
 
             if text is not None:
                 content += '''The meaning and part of speech of the words should be the same as in the contexts.\n'''
 
-            if language is not None:
-                content += f'''The definition should be the direct, one-word translations of the words in {language} with no English explanations.\n'''
+            if question_language is not None:
+                content += f'''The definition should be the direct, one-word translations of the words in {question_language} with no English explanations.\n'''
             elif level_prompt!='':
                 content += level_prompt
 
@@ -196,7 +200,6 @@ class AdoQuestionGenerator(object):
             2. It can be parsed using ast.literal_eval in Python.
             '''
 
-        print(content)
         messages = [{"role": "user", "content": content}]
         
         if override_messages is None:
