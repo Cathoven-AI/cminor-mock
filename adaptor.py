@@ -75,6 +75,8 @@ class AdoLevelAdaptor(object):
         if by=='sentence':
             by = "paragraph"
         n = max(1,min(n,5))
+        if type(target_level)==str:
+            target_level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[target_level.upper()]
 
         if self.before_result is None:
             before_result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,

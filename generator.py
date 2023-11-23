@@ -5,7 +5,7 @@ class AdoQuestionGenerator(object):
     def __init__(self, openai_api_key=None):
         self.openai_api_key = openai_api_key
 
-    def generate_questions(self, text, n=10, kind='multiple_choice', skill='reading', answer_position=False, explanation=False, language=None, auto_retry=3, override_messages=None):
+    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, language=None, auto_retry=3, override_messages=None):
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
@@ -15,9 +15,22 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
+        if type(level)==str:
+            level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[level.upper()]
+
+        int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+        if level is not None:
+            target_level = int2cefr[level]
+            max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
+            min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+            level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, each sentence should have no less than {min_length} words and no more than {max_length} words. The vocabulary should be simple and below {target_level} level."
+        else:
+            level_prompt = ''
+
         language_promt = ''
         if language is not None:
             language_promt = 'The questions should be created in '+language+'.'
+            level_prompt = ''
 
         if skill=='listening':
             material = 'as a listening exercise for an audio recording'
@@ -41,11 +54,12 @@ class AdoQuestionGenerator(object):
             explanation_json = ''
 
         if kind=='multiple_choice':
+            assert text is not None, "Please provide the text."
             json_format = '''[{"question": "Why is this the case?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***answer_position_json******explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***answer_position_json******explanation_json***}]'''
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
 
-            content = f'''Your task is to generate high-order thinking multiple choice questions {material}. Each question has only one correct choice and three unambiguously incorrect choices. {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking multiple choice questions {material}. Each question has only one correct choice and three unambiguously incorrect choices. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
             Follow the steps:
             1. Generate a high-order thinking question with 4 choices. One choice is logically correct and the other three are unambiguously incorrect.
             2. Verify each choice with the text to see if it can be the answer to the question.
@@ -65,11 +79,12 @@ class AdoQuestionGenerator(object):
             ```{text}```
             '''
         elif kind=='essay_question' or kind=='short_answer':
+            assert text is not None, "Please provide the text."
             json_format = '''[{"question": "Why is this the case?", "answer": "Some answer"***answer_position_json******explanation_json***}, {"question": "What is this?", "answer": "Some answer"***answer_position_json******explanation_json***}]'''
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
 
-            content = f'''Your task is to generate high-order thinking short answer questions {material}. Each question has only one correct answer. {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking short answer questions {material}. Each question has only one correct answer. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
 
             Answer rules:
             1. Use short phrases when possible. For example, the answer to "What are the freshwater forms of algae called?" should be "Charophyta." instead of "The freshwater forms of algae are called Charophyta."
@@ -95,6 +110,7 @@ class AdoQuestionGenerator(object):
             '''
 
         elif kind=='true_false' or kind=='true_false_not_given':
+            assert text is not None, "Please provide the text."
             json_format = '''[{"question": statement 1, "answer": False***answer_position_json******explanation_json***}, {"question": statement 2,"answer": True***answer_position_json******explanation_json***}, ...]'''
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
@@ -109,7 +125,7 @@ class AdoQuestionGenerator(object):
                 question_rule3 = ''
             
 
-            content = f'''Your task is to generate high-order thinking {question_type} questions for {material}. {answer_position_prompt} {explanation_prompt} {language_promt}
+            content = f'''Your task is to generate high-order thinking {question_type} questions for {material}. {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}
 
             Question rules:
             1. The statement in the question should not be the original sentence from the text. You should paraphrase and write it with your own words.
@@ -127,6 +143,60 @@ class AdoQuestionGenerator(object):
             ```{text}```
             '''
 
+        elif kind=='sentence_completion':
+            assert text is not None or words is not None, "Please provide the text or the words."
+
+            if words is not None:
+                content = f'''Your task is to generate sentence completion exercises for these words: {', '.join(words)}.'''
+            else:
+                content = f'''Your task is to generate {n} sentence completion exercises for the important words in the {material_format}.'''
+
+            content += f''' {level_prompt} {answer_position_prompt} {explanation_prompt} {language_promt}'''
+
+            if text is not None:
+                content += ''' The sentence contexts should be similar to the original settings but should not be the same as the original. The meaning and part of speech of the words in the sentences should be the same as the original.\n\n'''
+                content += f'''{material_format} and contexts of the words:\n```{text}```\n\n'''
+
+            json_format = '''[{"sentence": "sentence with a blank", "answer": "the word"***answer_position_json******explanation_json***}, {"sentence": "sentence with a blank", "answer": "the word"***answer_position_json******explanation_json***}, ...]'''
+            json_format = json_format.replace('***answer_position_json***',answer_position_json)
+            json_format = json_format.replace('***explanation_json***',explanation_json)
+            content += f''' Arrange the sentences as a Python list of dictionaries with keys "sentence" and "answer", like this:
+            ```{json_format}```
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one sentence with keys "sentence" and "answer".
+            2. It can be parsed using ast.literal_eval in Python.
+            '''
+
+        elif kind=='word_matching':
+            if words is not None:
+                content = f'''Your task is to generate definition match exercises for these words: {', '.join(words)}.'''
+            else:
+                content = f'''Your task is to generate {n} definition match exercises for the important words in the {material_format}.'''
+
+            content += f''' {answer_position_prompt} {explanation_prompt} {language_promt} '''
+
+            if text is not None:
+                content += '''The meaning and part of speech of the words should be the same as in the contexts.\n'''
+
+            if language is not None:
+                content += f'''The definition should be the direct, one-word translations of the words in {language} with no English explanations.\n'''
+            elif level_prompt!='':
+                content += level_prompt
+
+            if text is not None:
+                content += f'''\n{material_format} and contexts of the words:\n```{text}```\n\n'''
+
+            json_format = '''[{"definition": definition1, "answer": the word***answer_position_json******explanation_json***}, {"definition": definition2, "answer": the word***answer_position_json******explanation_json***}, ...]'''
+            json_format = json_format.replace('***answer_position_json***',answer_position_json)
+            json_format = json_format.replace('***explanation_json***',explanation_json)
+            content += f''' Arrange the sentences as a Python list of dictionaries with keys "definition" and "answer", like this:
+            ```{json_format}```
+            Each dictionary must meet the following requirements:
+            1. Each dictionary is one sentence with keys "definition" and "answer".
+            2. It can be parsed using ast.literal_eval in Python.
+            '''
+
+        print(content)
         messages = [{"role": "user", "content": content}]
         
         if override_messages is None:
@@ -219,6 +289,10 @@ class AdoTextGenerator(object):
             return None
         else:
             openai.api_key = self.openai_api_key
+
+        if type(level)==str:
+            level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[level.upper()]
+            
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
 
         custom_dictionary = {}
@@ -232,6 +306,8 @@ class AdoTextGenerator(object):
             model = 'gpt-4'
         else:
             model = 'gpt-3.5-turbo'
+
+
         return self.execute_prompt(prompt,level,temp_results=[],model=model,
                                    propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                                    return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
@@ -274,7 +350,7 @@ class AdoTextGenerator(object):
         
         if level<=2:
             prompt = f'''
-You task is to write a text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
+You task is to write an English text at CEFR {target_level} level for elementary English learners. The difficulty of vacubalary is important. You must choose your words carefully and use only simple words. Don't use technical or academic vocabulary.
 
 {target_level} level texts should meet these requirements:
 1. Each sentence has no less than {min_length} words and no more than {max_length} words.
@@ -284,7 +360,7 @@ In the meantime, the text should meet the following requirements:
 '''
         else:
             prompt = f'''
-You task is to write a {genre} text at CEFR {target_level} level.
+You task is to write an English {genre} text at CEFR {target_level} level.
 
 {target_level} level texts should meet these requirements:
 1. Each sentence has {min_length} to {max_length} words.
