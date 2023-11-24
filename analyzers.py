@@ -139,9 +139,9 @@ class AdoTextAnalyzer(object):
     def __init__(self, openai_api_key=None):
         self.text = None
         self.doc = None
-        self.cefr = None
-        self.readability = None
-        self.catile = None
+        self.cefr = self.CefrAnalyzer(self)
+        self.readability = self.ReadabilityAnalyzer(self)
+        self.catile = self.CatileAnalyzer(self)
         self.simplifier = None
         self.adaptor = None
         self.openai_api_key = openai_api_key
@@ -1740,6 +1740,100 @@ class AdoTextAnalyzer(object):
                 
             return level
 
+        def float2cefr(self, num):
+            cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            output = cefr.get(int(num),"Native")
+            if num<6:
+                s = "%.1f" % num
+                output += s[s.index('.'):]
+            return output
+
+        def float2ielts(self, num):
+            if num >= 5.45:
+                return 9.0
+            elif num >= 5.25:
+                return 8.5
+            elif num >= 5.0:
+                return 8.0
+            elif num >= 4.55:
+                return 7.5
+            elif num >= 4.25:
+                return 7.0
+            elif num >= 3.8:
+                return 6.5
+            elif num >= 3.45:
+                return 6.0
+            elif num >= 3.1:
+                return 5.5
+            elif num >= 2.7:
+                return 5.0
+            elif num >= 2.35:
+                return 4.5
+            elif num >= 2.0:
+                return 4.0
+            else:
+                return round(num * 2 / 0.5) * 0.5
+
+        def score2grades(self, score):
+            ket = "KET "
+            if 120 <= score <= 132:
+                ket += "Grade C"
+            elif 133 <= score <= 139:
+                ket += "Grade B"
+            elif 140 <= score <= 150:
+                ket += "Grade A"
+            else:
+                ket = ""
+
+            pet = "PET "
+            if 140 <= score <= 152:
+                pet += "Grade C"
+            elif 153 <= score <= 159:
+                pet += "Grade B"
+            elif 160 <= score <= 170:
+                pet += "Grade A"
+            else:
+                pet = ""
+
+            fce = "FCE "
+            if 160 <= score <= 172:
+                fce += "Grade C"
+            elif 173 <= score <= 179:
+                fce += "Grade B"
+            elif 180 <= score <= 190:
+                fce += "Grade A"
+            else:
+                fce = ""
+
+            cae = "CAE "
+            if 180 <= score <= 192:
+                cae += "Grade C"
+            elif 193 <= score <= 199:
+                cae += "Grade B"
+            elif 200 <= score <= 210:
+                cae += "Grade A"
+            else:
+                cae = ""
+
+            cpe = "CPE "
+            if 200 <= score <= 212:
+                cpe += "Grade C"
+            elif 213 <= score <= 219:
+                cpe += "Grade B"
+            elif 220 <= score <= 230:
+                cpe += "Grade A"
+            else:
+                cpe = ""
+
+            return [x for x in [ket, pet, fce, cae, cpe] if x]
+
+
+        def float2exams(self, num):
+            score = int(num*20+100)
+            grades = self.score2grades(score)
+            ielts = self.float2ielts(num)
+            return {'cambridge_scale_score':score,'exam_grades':grades,'ielts':ielts}
+
         def process_input(self,reference_word,reference_pos,reference_CEFR,word,pos,max_length=38):
             letter2id = {x:i+7 for i,x in enumerate(list('abcdefghijklmnopqrstuvwxyz'))}
             pos2id = {'NOUN': 33, 'ADJ': 34, 'VERB': 35, 'ADV': 36}
@@ -2274,7 +2368,8 @@ class AdoTextAnalyzer(object):
                                                                                                         'vocabulary_level':min(round(modified_vocabulary_level,1),6),
                                                                                                         'tense_level':min(round(tense_level,1),6),
                                                                                                         'clause_level':min(clause_level,6)}}
-                            temp['final_levels_str'] = {k:float2cefr(v) for k,v in temp['final_levels'].items()}
+                            temp['final_levels_str'] = {k:self.float2cefr(v) for k,v in temp['final_levels'].items()}
+                            temp['exam_stats'] = self.float2exams(temp['final_levels']['general_level'])
                             modified_final_levels.append(temp)
                             if modified_vocabulary_level<=min(buttom_level,int(buttom_level)+0.5):
                                 break
@@ -2323,7 +2418,8 @@ class AdoTextAnalyzer(object):
                 #self.clause_count = clause_count
             if self.__settings['return_final_levels']:
                 result_dict['final_levels'] = final_levels
-                result_dict['final_levels_str'] = {k:float2cefr(v) for k,v in final_levels.items()}
+                result_dict['final_levels_str'] = {k:self.float2cefr(v) for k,v in final_levels.items()}
+                result_dict['exam_stats'] = self.float2exams(final_levels['general_level'])
             if self.__settings['return_modified_final_levels']:
                 result_dict['modified_final_levels'] = modified_final_levels
                 #self.final_levels = final_levels
@@ -3283,7 +3379,7 @@ class AdoVideoAnalyzer(object):
         final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
         final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
         result['final_levels'] = final_levels
-        result['final_levels_str'] = {k:float2cefr(v) for k,v in final_levels.items()}
+        result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
         return result
     
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
@@ -3364,13 +3460,8 @@ class YoutubeLogger(object):
         print(msg)
 
 
-def float2cefr(num):
-    cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-    output = cefr.get(int(num),"Native")
-    if num<6:
-        s = "%.1f" % num
-        output += s[s.index('.'):]
-    return output
+
+
 
 def general_float2grade(num):
     rounded = int(num)

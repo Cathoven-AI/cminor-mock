@@ -253,8 +253,14 @@ class AdoLevelAdaptor(object):
             return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model=model)
 
         self.result = {
-            'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels, 
-            'before_str':{k:float2cefr(v) for k,v in before_levels.items()},'after_str':{k:float2cefr(v) for k,v in after_levels.items()}
+            'adaptation':after_text,
+            'before':before_levels,
+            'after': after_levels,
+            'modified_after_levels': modified_after_levels, 
+            'before_str':{k:float2cefr(v) for k,v in before_levels.items()},
+            'after_str':{k:float2cefr(v) for k,v in after_levels.items()},
+            'before_exam_stats':self.analyser.cefr.float2exams(before_levels['general_level']),
+            'after_exam_stats':self.analyser.cefr.float2exams(after_levels['general_level']),
         }
 
 

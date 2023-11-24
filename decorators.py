@@ -9,13 +9,30 @@ def baidu_cefr_decorator(func):
         kwargs.update(params)
         result = func(*args, **kwargs)
 
+        if len(result['exam_stats']['exam_grades'])==0:
+            exam_grades = '无'
+        else:
+            exam_grades = ' / '.join(result['exam_stats']['exam_grades'])
+
         message = '''以下是文章的CEFR难度分析结果
 整体难度：{}
 词汇难度：{}
 时态难度：{}
 句法难度：{}
-'''.format(level_str_to_cn(result['final_levels_str']['general_level']), level_str_to_cn(result['final_levels_str']['vocabulary_level']),
-            level_str_to_cn(result['final_levels_str']['tense_level']), level_str_to_cn(result['final_levels_str']['clause_level']))
+
+对应剑桥英语考试体系中的以下能力水平：
+· 剑桥英语量表分数（Cambridge Scale Score）：{}
+· 剑桥英语考试等级：{}
+· 雅思：{}
+'''.format(
+    level_str_to_cn(result['final_levels_str']['general_level']),
+    level_str_to_cn(result['final_levels_str']['vocabulary_level']),
+    level_str_to_cn(result['final_levels_str']['tense_level']),
+    level_str_to_cn(result['final_levels_str']['clause_level']),
+    result['exam_stats']['cambridge_scale_score'],
+    exam_grades,
+    result['exam_stats']['ielts']
+    )
         return {'message':message+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
     return inner
 
@@ -51,6 +68,10 @@ Catile值：{}
 def baidu_adaptor_decorator(func):
     def inner(*args, **kwargs):
         result = func(*args, **kwargs)
+
+        after_str = result['after_str']
+        after_exam_stats = result['after_exam_stats']
+
         target_level = kwargs.get('target_level',7)
         if type(target_level)==str:
             target_level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[target_level.upper()]
@@ -62,6 +83,7 @@ def baidu_adaptor_decorator(func):
             if result.get('modified_after_levels'):
                 final_levels = result['modified_after_levels'].get('final_levels')
                 final_levels_str = result['modified_after_levels'].get('final_levels_str')
+                exam_stats = result['modified_after_levels'].get('exam_stats')
                 if final_levels and int(final_levels['general_level']) <= target_level:
                     for x in result['modified_after_levels']['ignored_words']:
                         ignored_words.append(f'"{x.split("_")[0]}"')
@@ -69,13 +91,24 @@ def baidu_adaptor_decorator(func):
 
         message = ''
         if alert == 'difficult':
-            message = '这篇文章的主题对所选级别难度偏大，改写后难度可能仍会偏难。'
+            message = '这篇文章的主题对所选级别难度偏大，改写后可能仍会偏难。'
         elif alert == 'modified':
             if len(ignored_words) > 1:
                 message = ', '.join(ignored_words) + '是重要的关键词，不可替换。改写后文章的难度计算已忽略这些单词，建议在阅读前先学习这些单词。'
             else:
                 message = ignored_words[0] + '是重要的关键词，不可替换。改写后文章的难度计算已忽略这个单词，建议在阅读前先学习它。'
             after_str = final_levels_str
+            after_exam_stats = exam_stats
+
+        if len(result['before_exam_stats']['exam_grades'])==0:
+            before_exam_grades = '无'
+        else:
+            before_exam_grades = ' / '.join(result['before_exam_stats']['exam_grades'])
+        if len(after_exam_stats['exam_grades'])==0:
+            after_exam_grades = '无'
+        else:
+            after_exam_grades = ' / '.join(after_exam_stats['exam_grades'])
+
 
         message0 = '''以下是改写后的文章和难度分析结果：
 {}
@@ -83,26 +116,40 @@ def baidu_adaptor_decorator(func):
 {}
 
 原文难度：
-    整体难度：{}
-    词汇难度：{}
-    时态难度：{}
-    句法难度：{}
+· 整体难度：{}
+· 词汇难度：{}
+· 时态难度：{}
+· 句法难度：{}
+原文对应剑桥英语考试体系中的以下能力水平：
+· 剑桥英语量表分数（Cambridge Scale Score）：{}
+· 剑桥英语考试等级：{}
+· 雅思：{}
 
 改写后难度：
-    整体难度：{}
-    词汇难度：{}
-    时态难度：{}
-    句法难度：{}
+· 整体难度：{}
+· 词汇难度：{}
+· 时态难度：{}
+· 句法难度：{}
+改写后对应剑桥英语考试体系中的以下能力水平：
+· 剑桥英语量表分数（Cambridge Scale Score）：{}
+· 剑桥英语考试等级：{}
+· 雅思：{}
 '''.format(result['adaptation'],
            message,
            level_str_to_cn(result['before_str']['general_level']),
            level_str_to_cn(result['before_str']['vocabulary_level']),
            level_str_to_cn(result['before_str']['tense_level']),
            level_str_to_cn(result['before_str']['clause_level']),
+           result['before_exam_stats']['cambridge_scale_score'],
+           before_exam_grades,
+           result['before_exam_stats']['ielts'],
            level_str_to_cn(after_str['general_level']),
            level_str_to_cn(after_str['vocabulary_level']),
            level_str_to_cn(after_str['tense_level']),
-           level_str_to_cn(after_str['clause_level']))
+           level_str_to_cn(after_str['clause_level']),
+           after_exam_stats['cambridge_scale_score'],
+           after_exam_grades,
+           after_exam_stats['ielts'])
 
         return {'message':message0+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
     return inner
@@ -115,17 +162,31 @@ def baidu_text_generator_decorator(func):
                     'return_clause_stats':False,'return_phrase_count':False,'return_final_levels':True}
         kwargs.update(params)
         result = func(*args, **kwargs)
+
+        if len(result['result']['exam_stats']['exam_grades'])==0:
+            exam_grades = '无'
+        else:
+            exam_grades = ' / '.join(result['result']['exam_stats']['exam_grades'])
+
         message = '''以下是根据条件生成的文章及难度信息
 {}
 
 整体难度：{}
 词汇难度：{}
 时态难度：{}
-句法难度：{}'''.format(result['text'],
+句法难度：{}
+
+对应剑桥英语考试体系中的以下能力水平：
+· 剑桥英语量表分数（Cambridge Scale Score）：{}
+· 剑桥英语考试等级：{}
+· 雅思：{}'''.format(result['text'],
                   level_str_to_cn(result['result']['final_levels_str']['general_level']),
                   level_str_to_cn(result['result']['final_levels_str']['vocabulary_level']),
                   level_str_to_cn(result['result']['final_levels_str']['tense_level']),
-                  level_str_to_cn(result['result']['final_levels_str']['clause_level']))
+                  level_str_to_cn(result['result']['final_levels_str']['clause_level']),
+                  result['result']['exam_stats']['cambridge_scale_score'],
+                  exam_grades,
+                  result['result']['exam_stats']['ielts'])
         return {'message':message+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
     return inner
 
@@ -138,11 +199,17 @@ def baidu_question_generator_decorator(func):
                     '单选题':'multiple_choice',
                     '单项选择题':'multiple_choice',
                     '单选':'multiple_choice',
+                    'multiple choice cloze':'multiple_choice_cloze',
+                    '选择填空题':'multiple_choice_cloze',
+                    '选择填空':'multiple_choice_cloze',
+                    '完形填空题':'multiple_choice_cloze',
+                    '完形填空':'multiple_choice_cloze',
+                    '完形':'multiple_choice_cloze',
                     '填词':'sentence_completion',
                     '填词题':'sentence_completion',
                     '填空':'sentence_completion',
                     '填空题':'sentence_completion',
-                    '单词填空题':'sentence_completion',
+                    '句子填空题':'sentence_completion',
                     '判断题':'true_false',
                     '判断':'true_false',
                     '判断对错':'true_false',
@@ -173,28 +240,28 @@ def baidu_question_generator_decorator(func):
                 for j, choice in enumerate(question['choices']):
                     questions += f'{letters[j]}. {choice}\n'
                 questions += '\n\n'
-                answers += f'{i+1}. {letters[question["answer_index"]]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+                answers += f'{i+1}. {letters[question["answer_index"]]}\n解析：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
             message = f'''以下是生成的单选题\n\n{questions}\n答案：\n\n{answers}'''
         elif kind == 'short_answer':
             answers = ''
             questions = ''
             for i, question in enumerate(result):
                 questions += f'{i+1}. {question["question"]}\n\n'
-                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解析：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
             message = f'''以下是生成的简答题\n\n{questions}\n答案：\n\n{answers}'''
         elif kind == 'true_false':
             answers = ''
             questions = ''
             for i, question in enumerate(result):
                 questions += f'{i+1}. {question["question"]}\n\n'
-                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解析：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
             message = f'''以下是生成的判断题(True or False)\n\n{questions}\n答案：\n\n{answers}'''
         elif kind == 'true_false_not_given':
             answers = ''
             questions = ''
             for i, question in enumerate(result):
                 questions += f'{i+1}. {question["question"]}\n\n'
-                answers += f'{i+1}. {question["answer"]}\n解释：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
+                answers += f'{i+1}. {question["answer"]}\n解析：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
             message = f'''以下是生成的判断题(True/False/Not Given)\n\n{questions}\n答案：\n\n{answers}'''
         elif kind == 'sentence_completion':
             words = []
@@ -209,8 +276,19 @@ def baidu_question_generator_decorator(func):
                 answers += f'{i+1}. {words[j]}\n'
             words = ', '.join(words)
             message = f'''以下是生成的填空题\n\n请用以下单词填空：{words}\n\n{questions}\n答案：\n\n{answers}'''
+        elif kind == 'multiple_choice_cloze':
+            letters = ['A','B','C','D']
+            answers = ''
+            questions = ''
+            for i, question in enumerate(result['questions']):
+                questions += f'{i+1}. '
+                for j, choice in enumerate(question['choices']):
+                    questions += f'{letters[j]}. {choice}    '
+                questions += '\n'
+                answers += f'{i+1}. {letters[question["answer_index"]]}\n解析：{question.get("explanation","")}\n\n'
+            message = f'''以下是生成的完形填空练习\n\n{result['text']}\n\n{questions}\n答案：\n\n{answers}'''
         else:
-            message = '暂不支持该类型题目的生成。支持的题型有：单选题，判断题，简答题，单词填空题。'
+            message = '暂不支持该类型题目的生成。支持的题型有：单选题，完形填空题，判断题，简答题，句子填空题。'
 
         return {'message':message+'''\n\n(访问www.cathoven.com获取更多辅助英语学习与教学的AI工具。)'''}
 
@@ -228,4 +306,4 @@ def level_str_to_cn(s):
             stage = "高阶"
         else:
             stage = "中阶"
-        return f'{s}({parts[0]}{stage})'
+        return f'{s}（{parts[0]}{stage}）'

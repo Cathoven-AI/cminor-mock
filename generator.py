@@ -57,6 +57,8 @@ class AdoQuestionGenerator(object):
             explanation_prompt = ''
             explanation_json = ''
 
+        format_type = 'list of dictionaries'
+
         if kind=='multiple_choice':
             assert text is not None, "Please provide the text."
             json_format = '''[{"question": "Why is this the case?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***answer_position_json******explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***answer_position_json******explanation_json***}]'''
@@ -74,7 +76,7 @@ class AdoQuestionGenerator(object):
             ```{json_format}```
 
             Each dictionary must meet the following requirements:
-            1. Each dictionary is one question with keys "question", "choices", and "answer_index".
+            1. Each dictionary is one question.
             2. The answer_index ranges from 0 to 3.
             3. It can be parsed using ast.literal_eval in Python.
 
@@ -101,11 +103,11 @@ class AdoQuestionGenerator(object):
             4. If the answer is not in the text, or if the answer is contradictory or ambiguous, discard this question and start from the beginning.
             5. Repeat this process until you have {n} different questions.
 
-            After you generate {n} questions, arrange them as a Python list of dictionaries with keys "question" and "answer", like this:
+            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
             ```{json_format}```
 
             Each dictionary must meet the following requirements:
-            1. Each dictionary is one question with keys "question" and "answer".
+            1. Each dictionary is one question.
             2. It can be parsed using ast.literal_eval in Python.
 
 
@@ -136,11 +138,11 @@ class AdoQuestionGenerator(object):
             {question_rule2}
             {question_rule3}
 
-            After you generate {n} questions, arrange them as a Python list of dictionaries with keys "question" and "answer", like this:
+            After you generate {n} questions, arrange them as a Python list of dictionaries in this format:
             ```{json_format}```
 
             Each dictionary must meet the following requirements:
-            1. Each dictionary is one question with keys "question" and "answer".
+            1. Each dictionary is one question.
             2. It can be parsed using ast.literal_eval in Python.
 
             {material_format}:
@@ -151,7 +153,10 @@ class AdoQuestionGenerator(object):
             assert text is not None or words is not None, "Please provide the text or the words."
 
             if words is not None:
-                content = f'''Your task is to generate sentence completion exercises for these words: {', '.join(words)}.'''
+                if type(words)==str and text is not None:
+                    content = f'''Your task is to generate sentence completion exercises for the words wrapped in {words} in the {material_format}'''
+                else:
+                    content = f'''Your task is to generate sentence completion exercises for these words: {', '.join(words)}.'''
             else:
                 content = f'''Your task is to generate {n} sentence completion exercises for the important words in the {material_format}.'''
 
@@ -164,10 +169,10 @@ class AdoQuestionGenerator(object):
             json_format = '''[{"sentence": "sentence with a blank", "answer": "the word"***answer_position_json******explanation_json***}, {"sentence": "sentence with a blank", "answer": "the word"***answer_position_json******explanation_json***}, ...]'''
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
-            content += f''' Arrange the sentences as a Python list of dictionaries with keys "sentence" and "answer", like this:
+            content += f''' Arrange the sentences as a Python list of dictionaries in this format:
             ```{json_format}```
             Each dictionary must meet the following requirements:
-            1. Each dictionary is one sentence with keys "sentence" and "answer".
+            1. Each dictionary is one sentence.
             2. It can be parsed using ast.literal_eval in Python.
             '''
 
@@ -193,11 +198,42 @@ class AdoQuestionGenerator(object):
             json_format = '''[{"definition": definition1, "answer": the word***answer_position_json******explanation_json***}, {"definition": definition2, "answer": the word***answer_position_json******explanation_json***}, ...]'''
             json_format = json_format.replace('***answer_position_json***',answer_position_json)
             json_format = json_format.replace('***explanation_json***',explanation_json)
-            content += f''' Arrange the sentences as a Python list of dictionaries with keys "definition" and "answer", like this:
+            content += f''' Arrange the sentences as a Python list of dictionaries in this format:
             ```{json_format}```
             Each dictionary must meet the following requirements:
             1. Each dictionary is one sentence with keys "definition" and "answer".
             2. It can be parsed using ast.literal_eval in Python.
+            '''
+
+        elif kind=='multiple_choice_cloze':
+            assert text is not None or words is not None, "Please provide the text or the words."
+
+            requirements = '''Each question should have four choices. The blank in the text should have the number of the question. For example, if the blank is the first question, the blank should be ___1___; If the blank is the second question, the blank should be ___2___, etc.'''
+
+            if words is not None:
+                if type(words)==str:
+                    content = f'''Your task is to generate multiple choice cloze exercises for the words wrapped in {words} in the {material_format}. {requirements} '''
+                else:
+                    content = f'''Your task is to generate multiple choice cloze exercises for these words: [{', '.join(words)}] in the {material_format}. {requirements} '''
+            else:
+                content = f'''Your task is to generate {n} multiple choice cloze exercises for the important words in the {material_format}. {requirements} '''
+
+            content += f''' {level_prompt} {explanation_prompt} {explanation_language_promt}'''
+
+            if text is not None:
+                content += f'''{material_format}:\n```{text}```\n\n'''
+
+            json_format = '''{"text": text with blanks, questions:[{"choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***answer_position_json******explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***answer_position_json******explanation_json***}, ...]}'''
+            json_format = json_format.replace('***explanation_json***',explanation_json)
+            format_type = 'dictionary'
+            content += f'''Arrange the text with blanks and questions as a Python dictionary in this format:
+            ```{json_format}```
+
+            The dictionary must meet the following requirements:
+            1. It must include the text with blanks as the 'text' key.
+            2. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
+            3. The answer_index ranges from 0 to 3.
+            4. It can be parsed using ast.literal_eval in Python.
             '''
 
         messages = [{"role": "user", "content": content}]
@@ -228,7 +264,7 @@ class AdoQuestionGenerator(object):
             if auto_retry>0:
                 if auto_retry%2==1:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python list of dictionary format. Return them as a Python list of dictionaries like this example: {json_format}"}])
+                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
                 else:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
             else:
@@ -242,11 +278,30 @@ class AdoQuestionGenerator(object):
     
     def parse_questions(self, response):
         try:
-            response = response[response.index('['):response.rfind(']')+1]
+            square = response.index('[')
+        except:
+            square = None
+        try:
+            curly = response.index('{')
+        except:
+            curly = None
+
+        sign_l = '['
+        sign_r = ']'
+        if square is not None and curly is not None:
+            if curly<square:
+                sign_l = '{'
+                sign_r = '}'
+        elif square is None and curly is not None:
+            sign_l = '{'
+            sign_r = '}'
+
+        try:
+            response = response[response.index(sign_l):response.rfind(sign_r)+1]
             questions = ast.literal_eval(response)
         except:
             try:
-                response = response[response.index('['):response.rfind(']')+1]
+                response = response[response.index(sign_l):response.rfind(sign_r)+1]
                 questions = json.loads(response)
             except:
                 return None
@@ -366,7 +421,7 @@ In the meantime, the text should meet the following requirements:
 You task is to write an English {genre} text at CEFR {target_level} level.
 
 {target_level} level texts should meet these requirements:
-1. Each sentence has {min_length} to {max_length} words.
+1. Each sentence has {min_length} to no more than {max_length} words.
 2. The vocabulary should not be more difficult than CEFR {target_level} level.
 
 In the meantime, the text should meet the following requirements:
