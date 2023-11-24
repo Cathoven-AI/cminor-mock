@@ -230,7 +230,7 @@ class AdoQuestionGenerator(object):
             ```{json_format}```
 
             The dictionary must meet the following requirements:
-            1. It must include the text with blanks as the 'text' key.
+            1. The answer words must be replaced by blanks in the text, and the text with blanks will be the value of the 'text' key.
             2. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
             3. The answer_index ranges from 0 to 3.
             4. It can be parsed using ast.literal_eval in Python.
