@@ -45,14 +45,14 @@ class AdoQuestionGenerator(object):
 
         if answer_position==True:
             answer_position_prompt = 'The question should come with the portion of the original text that indicates the answer ("answer_position").'
-            answer_position_json = ', "answer_position": ...'
+            answer_position_json = ', "answer_position": the part of the text that indicates the answer'
         else:
             answer_position_prompt = ''
             answer_position_json = ''
 
         if explanation==True:
             explanation_prompt = 'The question should come with a short explanation of the answer ("explanation").'
-            explanation_json = ', "explanation": ...'
+            explanation_json = ', "explanation": explanation of the answer'
         else:
             explanation_prompt = ''
             explanation_json = ''
@@ -223,7 +223,7 @@ class AdoQuestionGenerator(object):
             if text is not None:
                 content += f'''{material_format}:\n```{text}```\n\n'''
 
-            json_format = '''{"text": text with blanks, questions:[{"choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***answer_position_json******explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***answer_position_json******explanation_json***}, ...]}'''
+            json_format = '''{"text": text with blanks, questions:[{"choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***explanation_json***}, ...]}'''
             json_format = json_format.replace('***explanation_json***',explanation_json)
             format_type = 'dictionary'
             content += f'''Arrange the text with blanks and questions as a Python dictionary in this format:
