@@ -227,8 +227,10 @@ def baidu_question_generator_decorator(func):
             k = np.argmin([lev.distance(kind, x) for x in keys])
             kind = kinds_cn[keys[k]]
 
-        params = {'n':5, 'explanation':True,'explanation_language':'simplified Chinese','question_language':'English','answer_position':True,'kind':kind}
+        params = {'explanation':True,'explanation_language':'simplified Chinese','question_language':'English','answer_position':True,'kind':kind}
         kwargs.update(params)
+        if 'n' not in kwargs:
+            kwargs['n'] = 5
         result = func(*args, **kwargs)
 
         if kind == 'multiple_choice':
@@ -239,7 +241,7 @@ def baidu_question_generator_decorator(func):
                 questions += f'{i+1}. {question["question"]}\n'
                 for j, choice in enumerate(question['choices']):
                     questions += f'{letters[j]}. {choice}\n'
-                questions += '\n\n'
+                questions += '\n'
                 answers += f'{i+1}. {letters[question["answer_index"]]}\n解析：{question.get("explanation","")}（{question.get("answer_position","")}）\n\n'
             message = f'''以下是生成的单选题\n\n{questions}\n答案：\n\n{answers}'''
         elif kind == 'short_answer':

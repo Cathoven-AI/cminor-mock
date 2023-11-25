@@ -14,7 +14,7 @@ class AdoLevelAdaptor(object):
         self.result = None
 
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=False, model="gpt-3.5-turbo"):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=True, model="gpt-3.5-turbo"):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None

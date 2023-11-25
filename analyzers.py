@@ -151,7 +151,7 @@ class AdoTextAnalyzer(object):
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,
-                    return_result=False,clear_simplifier=True,return_modified_final_levels=False):
+                    return_result=True,clear_simplifier=True,return_modified_final_levels=False):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
             raise Exception("Language not supported. Please use English.")
@@ -186,7 +186,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.cefr.result
 
-    def analyze_readability(self,text,language='en',return_grades=False,return_result=False):
+    def analyze_readability(self,text,language='en',return_grades=False,return_result=True):
         text = self.clean_text(text)
         if language=='en':
             detected_language = detect(text.replace('\n',' '))['lang']
@@ -210,7 +210,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.readability.result
 
-    def analyze_catile(self,text,return_result=False):
+    def analyze_catile(self,text,return_result=True):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
             raise Exception("Language not supported. Please use English.")
@@ -234,7 +234,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.catile.result
 
-    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=False):
+    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -255,7 +255,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.simplifier.result
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=False):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
