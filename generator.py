@@ -273,7 +273,8 @@ class AdoQuestionGenerator(object):
         if kind=='essay_question':
             for i in range(len(questions)):
                 questions[i]['answer'] = questions[i]['answer'].capitalize()
-
+        if type(questions)==list and len(questions)>n:
+            questions = questions[:n]
         return questions
     
     def parse_questions(self, response):
