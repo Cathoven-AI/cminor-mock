@@ -216,7 +216,7 @@ class AdoQuestionGenerator(object):
                 else:
                     content = f'''Your task is to generate multiple choice cloze exercises for these words: [{', '.join(words)}] in the {material_format}. {requirements} '''
             else:
-                content = f'''Your task is to generate multiple choice cloze exercises for {n} important words in the {material_format}. {requirements} '''
+                content = f'''Your task is to generate multiple choice cloze exercises for {n} important words in the {material_format}. The words should test students' vocabulary instead of factual knowledge, so don't choose numbers or proper nouns. {requirements} '''
 
             content += f''' {level_prompt} {explanation_prompt} {explanation_language_promt}'''
 
