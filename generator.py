@@ -77,7 +77,7 @@ class AdoQuestionGenerator(object):
 
             Each dictionary must meet the following requirements:
             1. Each dictionary is one question.
-            2. The answer_index ranges from 0 to 3.
+            2. The answer_index ranges from 0 to 3. The distribution of answer_index values (0, 1, 2, 3) should be balanced.
             3. It can be parsed using ast.literal_eval in Python.
 
 
@@ -233,7 +233,7 @@ class AdoQuestionGenerator(object):
             1. The answer words must be replaced by blanks in the text, and the correct answer must be exactly the same as the words that were replaced.
             2. The text with blanks will be the value of the 'text' key. The paragraph format and new lines should be the same as the original text.
             3. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
-            4. The answer_index ranges from 0 to 3.
+            4. The answer_index ranges from 0 to 3. The distribution of answer_index values (0, 1, 2, 3) should be balanced.
             5. It can be parsed using ast.literal_eval in Python.
             '''
 
