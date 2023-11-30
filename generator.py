@@ -208,7 +208,7 @@ class AdoQuestionGenerator(object):
         elif kind=='multiple_choice_cloze':
             assert text is not None or words is not None, "Please provide the text or the words."
 
-            requirements = '''Each question should have four choices. The correct answer must be exactly the same word which is to be made into a blank in the text. The blank in the text should have the number of the question. For example, if the blank is the first question, the blank should be ___1___; If the blank is the second question, the blank should be ___2___, etc.'''
+            requirements = '''Each question should have four choices. The blank in the text should have the number of the question. For example, if the blank is the first question, the blank should be ___1___; If the blank is the second question, the blank should be ___2___, etc.'''
 
             if words is not None:
                 if type(words)==str:
@@ -229,11 +229,12 @@ class AdoQuestionGenerator(object):
             content += f'''Arrange the text with blanks and questions as a Python dictionary in this format:
             ```{json_format}```
 
-            The dictionary must meet the following requirements:
-            1. The answer words must be replaced by blanks in the text, and the text with blanks will be the value of the 'text' key.
-            2. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
-            3. The answer_index ranges from 0 to 3.
-            4. It can be parsed using ast.literal_eval in Python.
+            The output dictionary must meet the following requirements:
+            1. The answer words must be replaced by blanks in the text, and the correct answer must be exactly the same as the words that were replaced.
+            2. The text with blanks will be the value of the 'text' key. The paragraph format and new lines should be the same as the original text.
+            3. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
+            4. The answer_index ranges from 0 to 3.
+            5. It can be parsed using ast.literal_eval in Python.
             '''
 
         messages = [{"role": "user", "content": content}]
