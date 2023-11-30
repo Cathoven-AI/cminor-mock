@@ -208,7 +208,7 @@ class AdoQuestionGenerator(object):
         elif kind=='multiple_choice_cloze':
             assert text is not None or words is not None, "Please provide the text or the words."
 
-            requirements = '''Each question should have four choices. The blank in the text should have the number of the question. For example, if the blank is the first question, the blank should be ___1___; If the blank is the second question, the blank should be ___2___, etc.'''
+            requirements = '''Each question should have four choices. The correct answer must be exactly the same word which is to be made into a blank in the text. The blank in the text should have the number of the question. For example, if the blank is the first question, the blank should be ___1___; If the blank is the second question, the blank should be ___2___, etc.'''
 
             if words is not None:
                 if type(words)==str:
@@ -216,7 +216,7 @@ class AdoQuestionGenerator(object):
                 else:
                     content = f'''Your task is to generate multiple choice cloze exercises for these words: [{', '.join(words)}] in the {material_format}. {requirements} '''
             else:
-                content = f'''Your task is to generate multiple choice cloze exercises for {n} important words in the {material_format}. The words should test students' vocabulary instead of factual knowledge, so don't choose numbers or proper nouns. {requirements} '''
+                content = f'''Your task is to generate multiple choice cloze exercises for {n} important words in the {material_format}. The words should test students' vocabulary and grammar instead of factual knowledge, so don't choose numbers or proper nouns. {requirements} '''
 
             content += f''' {level_prompt} {explanation_prompt} {explanation_language_promt}'''
 
