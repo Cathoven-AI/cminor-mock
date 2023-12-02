@@ -484,8 +484,6 @@ In the meantime, the text should meet the following requirements:
             return {'text':text, 'result':result}
 
     def parse_response(self, response):
-        response = response[response.index('{'):response.rfind('}')+1]
-        text = json.loads(response, strict=False)['text']
         try:
             response = response[response.index('{'):response.rfind('}')+1]
             text = json.loads(response, strict=False)['text']

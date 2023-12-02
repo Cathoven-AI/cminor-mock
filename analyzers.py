@@ -3183,7 +3183,8 @@ class AdoVideoAnalyzer(object):
                         en_subtitles = v
                 if en_subtitles is not None:
                     lines, duration = self.download_subtitles(en_subtitles)
-                    text = ' '.join(lines)
+                    if len(lines)>0:
+                        text = ' '.join([x['text'] for x in lines])
             video_id = info_dict.get('id')
             return {
                 'video_id':video_id,
