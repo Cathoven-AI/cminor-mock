@@ -1916,6 +1916,17 @@ class AdoTextAnalyzer(object):
             df_grammar['tense_term'] = df_grammar.index
             return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
             
+        def tag_text(self, sentences):
+            num2cefr = {-1:'CEFR_A0',0:'CEFR_A1',1:'CEFR_A2',2:'CEFR_B1',3:'CEFR_B2',4:'CEFR_C1',5:'CEFR_C2',6:'CEFR_D'}
+            text_tagged = ''
+            for _, s in sentences.items():
+                for i in range(len(s['pos'])):
+                    cefr = num2cefr.get(s['CEFR'][i])
+                    if cefr:
+                        text_tagged += f"<{cefr}>" + s['word'][i] + f"</{cefr}>" + ' '*s['whitespace'][i]
+                    else:
+                        text_tagged += s['word'][i] + ' '*s['whitespace'][i]
+            return text_tagged
 
         def process(self, custom_dictionary={}):
             dfs = {}
@@ -2378,6 +2389,7 @@ class AdoTextAnalyzer(object):
             result_dict = {}
             if self.__settings['return_sentences']:
                 result_dict['sentences'] = sentences
+                result_dict['text_tagged'] = self.tag_text(sentences)
                 #self.sentences = sentences
             if self.__settings['return_wordlists']:
                 result_dict['wordlists'] = wordlists

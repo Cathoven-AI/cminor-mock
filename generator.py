@@ -1,10 +1,43 @@
 import numpy as np
-import openai, json, ast, warnings, os, sys, re
+import openai, json, ast, warnings, os, sys, re, difflib
+from nltk.tokenize import sent_tokenize
+
+def parse_response(response):
+    try:
+        square = response.index('[')
+    except:
+        square = None
+    try:
+        curly = response.index('{')
+    except:
+        curly = None
+
+    sign_l = '['
+    sign_r = ']'
+    if square is not None and curly is not None:
+        if curly<square:
+            sign_l = '{'
+            sign_r = '}'
+    elif square is None and curly is not None:
+        sign_l = '{'
+        sign_r = '}'
+
+    try:
+        response = response[response.index(sign_l):response.rfind(sign_r)+1]
+        questions = ast.literal_eval(response)
+    except:
+        try:
+            response = response[response.index(sign_l):response.rfind(sign_r)+1]
+            questions = json.loads(response)
+        except:
+            return None
+    return questions
 
 class AdoQuestionGenerator(object):
-    def __init__(self, openai_api_key=None):
+    def __init__(self, text_analyser=None, openai_api_key=None):
         self.openai_api_key = openai_api_key
-
+        self.analyser = text_analyser
+        
     def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
@@ -15,7 +48,12 @@ class AdoQuestionGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        if type(level)==str:
+        if level is None and self.analyser is not None:
+            result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
+                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=False)
+            level = min(int(result["final_levels"]["general_level"]),5)
+        elif type(level)==str:
             level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[level.upper()]
 
         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
@@ -212,7 +250,8 @@ class AdoQuestionGenerator(object):
 
             if words is not None:
                 if type(words)==str:
-                    content = f'''Your task is to generate multiple choice cloze exercises for the words wrapped in {words} in the {material_format}. {requirements} '''
+                    actual_words = re.findall(r'\*\*\*([^\*]+)\*\*\*', text)
+                    content = f'''Your task is to generate multiple choice cloze exercises for the words wrapped in {words} in the {material_format}, and these words are [{', '.join(actual_words)}]. {requirements} '''
                 else:
                     content = f'''Your task is to generate multiple choice cloze exercises for these words: [{', '.join(words)}] in the {material_format}. {requirements} '''
             else:
@@ -259,7 +298,7 @@ class AdoQuestionGenerator(object):
                 print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
         response = completion['choices'][0]['message']['content'].strip(' `')
-        questions = self.parse_questions(response)
+        questions = parse_response(response)
 
         if questions is None:
             if auto_retry>0:
@@ -449,7 +488,7 @@ In the meantime, the text should meet the following requirements:
             messages=[{"role": "user", "content": prompt}],
             n=1
         )
-        text = self.parse_response(completion['choices'][0]['message']['content'])
+        text = parse_response(completion['choices'][0]['message']['content'])['text']
         result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
@@ -483,17 +522,245 @@ In the meantime, the text should meet the following requirements:
                 text = '\n'.join(lines)
             return {'text':text, 'result':result}
 
-    def parse_response(self, response):
-        try:
-            response = response[response.index('{'):response.rfind('}')+1]
-            text = json.loads(response, strict=False)['text']
-        except:
-            try:
-                response = response[response.index('{'):response.rfind('}')+1]
-                text = ast.literal_eval(response)['text']
-            except:
-                return None
-        return text
+    # def parse_response(self, response):
+    #     try:
+    #         response = response[response.index('{'):response.rfind('}')+1]
+    #         text = json.loads(response, strict=False)['text']
+    #     except:
+    #         try:
+    #             response = response[response.index('{'):response.rfind('}')+1]
+    #             text = ast.literal_eval(response)['text']
+    #         except:
+    #             return None
+    #     return text
 
 
+class AdoWritingAssessor(object):
+    def __init__(self, text_analyser, openai_api_key=None):
+        self.openai_api_key = openai_api_key
+        self.analyser = text_analyser
 
+    def revise(self,text, comment=False, writing_language='English', comment_language=None, auto_retry=2, original_analysis=None, override_messages=None):
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        else:
+            openai.api_key = self.openai_api_key
+
+        if comment==True:
+            json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
+            comment_prompt = '''You should give comments on the revisions, including vocabulary, spelling errors, grammar mistakes, sentence structures, coherence, etc. Besides the types of revision, also quote the changes to tell students clearly what to improve.'''
+            comment_prompt2 = ', and the comments on the revisions'
+        else:
+            json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...]]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...]]}, ...]'''
+            comment_prompt = ''
+            comment_prompt2 = ''
+
+        if comment==True and comment_language:
+            language_prompt = f'''Your students speak {comment_language}, so the comments should be in {comment_language}, but keep the quotations of the original and revised text in {writing_language}.'''
+        else:
+            language_prompt = ''
+            
+        if original_analysis is None:
+            original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+        target_level = int2cefr.get(np.ceil(original_analysis['final_levels']['vocabulary_level']), 'C2')
+
+        content = f'''You are a professional {writing_language} teacher. Your task is to find mistakes in students' writings and correct them in terms of vocabulary, grammar, sentence structure, paragraphing, and coherence.
+For vocabulary and collocations, only correct mistakes and inappropriate usage using words at CEFR {target_level} level or below. Don't try to enhance the vocabulary level.
+You can revise one sentence or several sentences at a time when appropriate (for example, when two sentences need to be combined or one sentence needs to be broken down into two).
+You can divide, combine or rearrange sentences and paragraphing to improve coherence and cohesion (for example, when a paragraph needs to be divided, add a new line '\\n' at the appropriate position)..
+You need to output the original parts of text, the revision, the types of revision{comment_prompt2} in a Python list of dictionaries like this {json_format}
+This list of dictionaries should be parsed using ast.literal_eval in Python.
+The types of revision can be one or more of the following:
+    "vocabulary" (Correct vocabulary usage and collocations mistakes, or correct spelling errors.)
+    "grammar"(Correct grammar or sentence structure mistakes, or improve grammatical accuracy.)
+    "coherence_cohesion"(Improve coherence and cohesion between sentences and paragraphs by adding or modifying transition words, conjunctions, etc.)
+    "others"
+{comment_prompt}
+If the original sentences are already good, don't include them in the list.
+{language_prompt}
+
+Writing:
+{text}
+'''
+        messages = [{"role": "user", "content": content}]
+        if override_messages is None:
+            messages_to_send = messages
+        else:
+            messages_to_send = override_messages
+
+        completion = openai.ChatCompletion.create(
+            model="gpt-4-1106-preview",
+            messages=messages_to_send
+        )
+
+        result = parse_response(completion['choices'][0]['message']['content'])
+        if result is None:
+            if auto_retry>0:
+                if auto_retry%2==1:
+                    return self.generate_questions(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                                                                                                              {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
+                else:
+                    return self.generate_questions(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
+            else:
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
+        
+        revised_text = text+''
+        for x in result:
+            if x['original'] in text:
+                revised_text = revised_text.replace(x['original'], x['revision'])
+            else:
+                originals = sent_tokenize(x['original'])
+                try:
+                    start = revised_text.index(originals[0])
+                    end = revised_text.index(originals[-1])+len(originals[-1])
+                    revised_text = revised_text[:start]+x['revision']+revised_text[end:]
+                except:
+                    n_originals = len(originals)
+                    for i in range(len(originals)):
+                        if i==n_originals-1:
+                            revised_text = revised_text.replace(originals[i], x['revision'])
+                        else:
+                            revised_text = revised_text.replace(originals[i], '')
+
+
+        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+
+        original_analysis['final_levels']['clause_level'] = revision_analysis['final_levels']['clause_level']
+        average_level = (original_analysis['final_levels']['vocabulary_level']+original_analysis['final_levels']['tense_level']+original_analysis['final_levels']['clause_level'])/3
+        general_level = max([original_analysis['final_levels']['vocabulary_level'],original_analysis['final_levels']['tense_level'],average_level,original_analysis['final_levels']['clause_level']-0.5])
+        original_analysis['final_levels']['general_level'] = general_level
+        original_analysis['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in original_analysis['final_levels'].items()}
+
+        return {'revised_text':revised_text,'revisions':result,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+
+    def enhance(self, text, level=None, comment=False, writing_language='English', comment_language=None, auto_retry=2, override_messages=None):
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        else:
+            openai.api_key = self.openai_api_key
+
+        if comment==True:
+            json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
+            comment_prompt = '''You should give comments on the improvements, including vocabulary, spelling errors, grammar mistakes, sentence structures, coherence, etc. Besides the types of revision, also quote the changes to tell students clearly what to improve.'''
+            comment_prompt2 = ', and the comments on the revisions'
+        else:
+            json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...]]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...]]}, ...]'''
+            comment_prompt = ''
+            comment_prompt2 = ''
+
+        if comment==True and comment_language:
+            language_prompt = f'''Your students speak {comment_language}, so the comments should be in {comment_language}, but keep the quotations of the original and revised text in {writing_language}.'''
+        else:
+            language_prompt = ''
+            
+        if level:
+            if type(level)==str:
+                level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}.get(level.upper(),level)
+            else:
+                level = int(level)
+            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            if level in int2cefr:
+                target_level = int2cefr[level]
+                max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
+                min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+                level_prompt = f"The improved writing should have a level of {target_level}. To enhanced vocabulary, add only several words at {target_level} level. Add no words above {target_level} level. The majority of words should be below {target_level} level."
+            else:
+                level_prompt = f"The improved writing should have a level of {level}."
+        else:
+            level_prompt = ''
+            
+        content = f'''You are a professional {writing_language} teacher. Your task is to improve students' writings in terms of vocabulary, grammar, sentence structure, paragraphing,  and coherence. {level_prompt}
+You can revise one sentence or several sentences at a time when appropriate (for example, when two sentences need to be combined or one sentence needs to be broken down into two).
+You can divide, combine or rearrange sentences and paragraphing to improve coherence and cohesion (for example, when a paragraph needs to be divided, add a new line '\\n' at the appropriate position)..
+You need to output the original parts of text, the revision, the types of revision{comment_prompt2} in a Python list of dictionaries like this {json_format}
+This list of dictionaries should be parsed using ast.literal_eval in Python.
+The types of revision can be one or more of the following:
+    "vocabulary" (Enhance vocabulary range and collocations, or correct spelling errors.)
+    "grammar"(Correct grammar or sentence structure mistakes, or improve grammatical range and accuracy.)
+    "coherence_cohesion"(Improve coherence and cohesion between sentences and paragraphs by adding or modifying transition words, conjunctions, etc.)
+    "others"
+{comment_prompt}
+If the original sentences are already good, don't include them in the list.
+{language_prompt}
+
+Writing:
+{text}
+'''
+        messages = [{"role": "user", "content": content}]
+        if override_messages is None:
+            messages_to_send = messages
+        else:
+            messages_to_send = override_messages
+
+        completion = openai.ChatCompletion.create(
+            model="gpt-4-1106-preview",
+            messages=messages_to_send
+        )
+
+        result = parse_response(completion['choices'][0]['message']['content'])
+        if result is None:
+            if auto_retry>0:
+                if auto_retry%2==1:
+                    return self.generate_questions(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                                                                                                              {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
+                else:
+                    return self.generate_questions(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
+            else:
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
+        
+        revised_text = text+''
+        for x in result:
+            if x['original'] in text:
+                revised_text = revised_text.replace(x['original'], x['revision'])
+            else:
+                originals = sent_tokenize(x['original'])
+                try:
+                    start = revised_text.index(originals[0])
+                    end = revised_text.index(originals[-1])+len(originals[-1])
+                    revised_text = revised_text[:start]+x['revision']+revised_text[end:]
+                except:
+                    n_originals = len(originals)
+                    for i in range(len(originals)):
+                        if i==n_originals-1:
+                            revised_text = revised_text.replace(originals[i], x['revision'])
+                        else:
+                            revised_text = revised_text.replace(originals[i], '')
+
+        original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        
+
+        return {'revised_text':revised_text,'revisions':result,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+    
+    def mark_differences(self, str1, str2):
+        words1 = str1.split(' ')
+        words2 = str2.split(' ')
+
+        diff = list(difflib.ndiff(words1, words2))
+        marked_str1 = []
+        marked_str2 = []
+
+        for d in diff:
+            word = d[2:]
+            if d.startswith('?'):
+                continue
+            if d.startswith('-'):
+                marked_str1.append(f'<u>{word}</u>')
+            elif d.startswith('+'):
+                marked_str2.append(f'<u>{word}</u>')
+            else:
+                marked_str1.append(word)
+                marked_str2.append(word)
+
+        return ' '.join(marked_str1),' '.join(marked_str2)
