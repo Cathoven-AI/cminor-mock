@@ -22,6 +22,7 @@ from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
+from ftlangdetect import detect
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
 # Lexile files
@@ -138,19 +139,25 @@ class AdoTextAnalyzer(object):
     def __init__(self, openai_api_key=None):
         self.text = None
         self.doc = None
-        self.cefr = None
-        self.readability = None
-        self.catile = None
+        self.cefr = self.CefrAnalyzer(self)
+        self.readability = self.ReadabilityAnalyzer(self)
+        self.catile = self.CatileAnalyzer(self)
         self.simplifier = None
         self.adaptor = None
         self.openai_api_key = openai_api_key
+        self.detect = detect
 
     def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=False,clear_simplifier=True,return_modified_final_levels=False):
+                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,
+                    return_result=True,clear_simplifier=True,return_modified_final_levels=False):
+
+        if detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+
         text = self.clean_text(text)
-        if text!=self.text:
+        if text!=self.text or custom_dictionary!={}:
             self.doc = None
             self.cefr = None
             self.readability = None
@@ -179,9 +186,16 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.cefr.result
 
-    def analyze_readability(self,text,language='en',return_result=False):
+    def analyze_readability(self,text,language='en',return_grades=False,return_result=True):
         text = self.clean_text(text)
-        if text!=self.text:
+        if language=='en':
+            detected_language = detect(text.replace('\n',' '))['lang']
+            if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
+                raise Exception("Language not supported.")
+            else:
+                language = detected_language
+
+        if text!=self.text or self.readability is None or self.readability.return_grades!=return_grades:
             self.doc = None
             self.cefr = None
             self.readability = None
@@ -191,11 +205,16 @@ class AdoTextAnalyzer(object):
             self.text = text
         if self.readability is None:
             self.readability = self.ReadabilityAnalyzer(self)
+            self.readability.return_grades = return_grades
             self.readability.start_analyze(language)
         if return_result:
             return self.readability.result
 
-    def analyze_catile(self,text,return_result=False):
+    def analyze_catile(self,text,return_result=True):
+
+        if detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+            
         text = self.clean_text(text)
         if text!=self.text:
             self.doc = None
@@ -215,7 +234,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.catile.result
 
-    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=False):
+    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -236,7 +255,7 @@ class AdoTextAnalyzer(object):
         if return_result:
             return self.simplifier.result
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=False):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=True):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
@@ -839,6 +858,31 @@ class AdoTextAnalyzer(object):
                 y_pred = linear_model.predict([x])[0]
             return y_pred
 
+        def get_age_grade(self, score):
+            tree = {
+                1: {"age": "6-7", "min": 5, "max": 365},
+                2: {"age": "7-8", "min": 245, "max": 605},
+                3: {"age": "8-9", "min": 480, "max": 810},
+                4: {"age": "9-10", "min": 700, "max": 1005},
+                5: {"age": "10-11", "min": 795, "max": 1100},
+                6: {"age": "11-12", "min": 875, "max": 1180},
+                7: {"age": "12-13", "min": 940, "max": 1250},
+                8: {"age": "13-14", "min": 1000, "max": 1310},
+                9: {"age": "14-15", "min": 1050, "max": 1360},
+                10: {"age": "15-16", "min": 1095, "max": 1410},
+                11: {"age": "16-17", "min": 1140, "max": 1450},
+                12: {"age": "17-18", "min": 1140, "max": 1450},
+            }
+
+            age_arr = []
+            grade_arr = []
+
+            for k, v in tree.items():
+                if v.get("min") < score < v.get("max"):
+                    age_arr.append(v.get("age"))
+                    grade_arr.append(k)
+            return age_arr, grade_arr
+
         def start_analyze(self):
             df, summary, longest_sentence = self.process_text()
 
@@ -917,12 +961,16 @@ class AdoTextAnalyzer(object):
             #most_frequent = df_data.sort_values(['lemma_frequency','frequency','aoa','nsyl','decode_lemma'],ascending=[False,True,False,False,False]).head()['lemma'].values
             difficult_words = df_data.sort_values(['frequency','aoa','lemma_frequency','nsyl','decode_lemma'],ascending=[True,False,False,False,False]).head(10)['lemma'].values
             
+            age, grade = self.get_age_grade(pred_lexile)
+
             self.result = {
                 "scores": scores,
                 "difficult_words": difficult_words, 
                 "longest_sentence": longest_sentence,
                 "mean_sent_length": mean_sent_length,
-                "word_count": word_count
+                "word_count": word_count,
+                "age": age,
+                "grade": grade
             }
 
     class CefrAnalyzer(object):
@@ -1347,7 +1395,7 @@ class AdoTextAnalyzer(object):
                 tense2 = 'ind. (past)'
             elif form == 'do do' and x.i>=3 and self.shared_object.doc[x.i-1].lemma_=='you' and self.shared_object.doc[x.i-2].lemma_=='not' and self.shared_object.doc[x.i-3].lemma_=='do' and all([child.orth_!='?' for child in x.children if x.i<child.i]):
                 tense2 = 'imp.'
-            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets'])])>0:
+            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets','get'])])>0:
                 tense2 = 'ind. (present)'
             elif form=='do':
                 first = x
@@ -1692,6 +1740,100 @@ class AdoTextAnalyzer(object):
                 
             return level
 
+        def float2cefr(self, num):
+            cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            output = cefr.get(int(num),"Native")
+            if num<6:
+                s = "%.1f" % num
+                output += s[s.index('.'):]
+            return output
+
+        def float2ielts(self, num):
+            if num >= 5.45:
+                return 9.0
+            elif num >= 5.25:
+                return 8.5
+            elif num >= 5.0:
+                return 8.0
+            elif num >= 4.55:
+                return 7.5
+            elif num >= 4.25:
+                return 7.0
+            elif num >= 3.8:
+                return 6.5
+            elif num >= 3.45:
+                return 6.0
+            elif num >= 3.1:
+                return 5.5
+            elif num >= 2.7:
+                return 5.0
+            elif num >= 2.35:
+                return 4.5
+            elif num >= 2.0:
+                return 4.0
+            else:
+                return round(num * 2 / 0.5) * 0.5
+
+        def score2grades(self, score):
+            ket = "KET "
+            if 120 <= score <= 132:
+                ket += "Grade C"
+            elif 133 <= score <= 139:
+                ket += "Grade B"
+            elif 140 <= score <= 150:
+                ket += "Grade A"
+            else:
+                ket = ""
+
+            pet = "PET "
+            if 140 <= score <= 152:
+                pet += "Grade C"
+            elif 153 <= score <= 159:
+                pet += "Grade B"
+            elif 160 <= score <= 170:
+                pet += "Grade A"
+            else:
+                pet = ""
+
+            fce = "FCE "
+            if 160 <= score <= 172:
+                fce += "Grade C"
+            elif 173 <= score <= 179:
+                fce += "Grade B"
+            elif 180 <= score <= 190:
+                fce += "Grade A"
+            else:
+                fce = ""
+
+            cae = "CAE "
+            if 180 <= score <= 192:
+                cae += "Grade C"
+            elif 193 <= score <= 199:
+                cae += "Grade B"
+            elif 200 <= score <= 210:
+                cae += "Grade A"
+            else:
+                cae = ""
+
+            cpe = "CPE "
+            if 200 <= score <= 212:
+                cpe += "Grade C"
+            elif 213 <= score <= 219:
+                cpe += "Grade B"
+            elif 220 <= score <= 230:
+                cpe += "Grade A"
+            else:
+                cpe = ""
+
+            return [x for x in [ket, pet, fce, cae, cpe] if x]
+
+
+        def float2exams(self, num):
+            score = int(num*20+100)
+            grades = self.score2grades(score)
+            ielts = self.float2ielts(num)
+            return {'cambridge_scale_score':score,'exam_grades':grades,'ielts':ielts}
+
         def process_input(self,reference_word,reference_pos,reference_CEFR,word,pos,max_length=38):
             letter2id = {x:i+7 for i,x in enumerate(list('abcdefghijklmnopqrstuvwxyz'))}
             pos2id = {'NOUN': 33, 'ADJ': 34, 'VERB': 35, 'ADV': 36}
@@ -1774,6 +1916,17 @@ class AdoTextAnalyzer(object):
             df_grammar['tense_term'] = df_grammar.index
             return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
             
+        def tag_text(self, sentences):
+            num2cefr = {-1:'CEFR_A0',0:'CEFR_A1',1:'CEFR_A2',2:'CEFR_B1',3:'CEFR_B2',4:'CEFR_C1',5:'CEFR_C2',6:'CEFR_D'}
+            text_tagged = ''
+            for _, s in sentences.items():
+                for i in range(len(s['pos'])):
+                    cefr = num2cefr.get(s['CEFR'][i])
+                    if cefr:
+                        text_tagged += f"<{cefr}>" + s['word'][i] + f"</{cefr}>" + ' '*s['whitespace'][i]
+                    else:
+                        text_tagged += s['word'][i] + ' '*s['whitespace'][i]
+            return text_tagged
 
         def process(self, custom_dictionary={}):
             dfs = {}
@@ -1974,7 +2127,7 @@ class AdoTextAnalyzer(object):
                     dfs_keyterms.append(df_keyterms)
                 df_keyterms = pd.concat(dfs_keyterms)
                 df_lemma = df_lemma.merge(df_keyterms,how='left',on=['pos','lemma'])
-                df_lemma['yake'] = df_lemma['yake'].fillna(-1)
+                df_lemma['yake'] = df_lemma['yake'].fillna(1)
                 self.df_lemma = df_lemma
 
                 topic_vocabulary = {}
@@ -1992,7 +2145,7 @@ class AdoTextAnalyzer(object):
             for sentence_id, df in dfs.items():
                 if self.__settings['return_sentences'] or self.__settings['return_wordlists']:
                     df = df.merge(df_keyterms,how='left',on=['pos','lemma'])
-                    df['yake'] = df['yake'].fillna(-1)
+                    df['yake'] = df['yake'].fillna(1)
 
                 #clause_level = self.sentence_clause_level(df['CEFR_clause'].dropna().values)
                 #clause_levels.append((np.exp(clause_level)-0.9)*len(df[df['pos']!='PUNCT']))
@@ -2186,7 +2339,7 @@ class AdoTextAnalyzer(object):
                     tense_level = tense_stats["level"]["fit_curve"][0]
 
                 if stats_dict["level"]["fit_error"][0]>=0.1:
-                    vocabulary_level =stats_dict["level"]["ninety_five"][0]
+                    vocabulary_level = stats_dict["level"]["ninety_five"][0]
                 else:
                     vocabulary_level = stats_dict["level"]["fit_curve"][0]
                 
@@ -2222,10 +2375,13 @@ class AdoTextAnalyzer(object):
                             modified_vocabulary_level = self.estimate_95(df_lemma_temp2['CEFR'].values)
                             modified_average_level = (modified_vocabulary_level+tense_level+clause_level)/3
                             modified_general_level = max([modified_vocabulary_level,tense_level,modified_average_level,clause_level-0.5])
-                            modified_final_levels.append({'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
+                            temp = {'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
                                                                                                         'vocabulary_level':min(round(modified_vocabulary_level,1),6),
                                                                                                         'tense_level':min(round(tense_level,1),6),
-                                                                                                        'clause_level':min(clause_level,6)}})
+                                                                                                        'clause_level':min(clause_level,6)}}
+                            temp['final_levels_str'] = {k:self.float2cefr(v) for k,v in temp['final_levels'].items()}
+                            temp['exam_stats'] = self.float2exams(temp['final_levels']['general_level'])
+                            modified_final_levels.append(temp)
                             if modified_vocabulary_level<=min(buttom_level,int(buttom_level)+0.5):
                                 break
 
@@ -2233,6 +2389,7 @@ class AdoTextAnalyzer(object):
             result_dict = {}
             if self.__settings['return_sentences']:
                 result_dict['sentences'] = sentences
+                result_dict['text_tagged'] = self.tag_text(sentences)
                 #self.sentences = sentences
             if self.__settings['return_wordlists']:
                 result_dict['wordlists'] = wordlists
@@ -2273,6 +2430,8 @@ class AdoTextAnalyzer(object):
                 #self.clause_count = clause_count
             if self.__settings['return_final_levels']:
                 result_dict['final_levels'] = final_levels
+                result_dict['final_levels_str'] = {k:self.float2cefr(v) for k,v in final_levels.items()}
+                result_dict['exam_stats'] = self.float2exams(final_levels['general_level'])
             if self.__settings['return_modified_final_levels']:
                 result_dict['modified_final_levels'] = modified_final_levels
                 #self.final_levels = final_levels
@@ -2321,21 +2480,24 @@ class AdoTextAnalyzer(object):
             return np.sqrt(np.nanmean((cumsum_series_values-pred)**2))
 
         def percentile2level(self,x,a,b,c,d):
-            return a/(-b+np.exp(-x*c+d))
+            return max(0,a/(-b+np.exp(-x*c+d)))
 
         def level2percentile(self,y,a,b,c,d):
             y = np.array(y)
             return (d-np.log(a/y+b))/c
 
         def estimate_95(self, levels, minimum=-1, maximum=6):
-            cumsum = np.cumsum([Counter(levels).get(i,0) for i in range(minimum,maximum+1)])
-            cumsum = cumsum/cumsum[-1]
-            for i in range(len(cumsum)-1):
-                if cumsum[i]>=0.95:
-                    return i+minimum
-                elif cumsum[i+1]>0.95:
-                    return i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i])
-            return maximum
+            try:
+                cumsum = np.cumsum([Counter(levels).get(i,0) for i in range(minimum,maximum+1)])
+                cumsum = cumsum/cumsum[-1]
+                for i in range(len(cumsum)-1):
+                    if cumsum[i]>=0.95:
+                        return i+minimum
+                    elif cumsum[i+1]>0.95:
+                        return i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i])
+                return maximum
+            except:
+                return 0
 
         def ninety_five(self,cumsum_series,default=6):
             if cumsum_series.sum()==0:
@@ -2395,6 +2557,7 @@ class AdoTextAnalyzer(object):
         def __init__(self,outer):
             self.shared_object = outer
             self.result = None
+            self.return_grades=False
 
         def start_analyze(self,language='en'):
             '''
@@ -2434,26 +2597,18 @@ class AdoTextAnalyzer(object):
 
             text = self.shared_object.text
             if language=='es':
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'fernandez_huerta':textstat.fernandez_huerta(text),
                         'szigriszt_pazos':textstat.szigriszt_pazos(text),
                         'gutierrez_polini':textstat.gutierrez_polini(text),
-                        'crawford':textstat.crawford(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                        'crawford':textstat.crawford(text)}
             elif language=="it":
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
-                        'gulpease_index':textstat.gulpease_index(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
+                        'gulpease_index':textstat.gulpease_index(text)}
             elif language=="pl":
-                self.result = {'gunning_fog':textstat.gunning_fog(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'gunning_fog':textstat.gunning_fog(text)}
             elif language in set(['de','fr','nl','ru']):
-                self.result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                result = {'flesch_reading_ease':textstat.flesch_reading_ease(text)}
             else:
                 result = {'flesch_reading_ease':textstat.flesch_reading_ease(text),
                         'flesch_kincaid_grade':textstat.flesch_kincaid_grade(text),
@@ -2464,13 +2619,27 @@ class AdoTextAnalyzer(object):
                         'coleman_liau_index':textstat.coleman_liau_index(text),
                         'linsear_write_formula':textstat.linsear_write_formula(text),
                         #'text_standard':textstat.text_standard(text, float_output=True),
-                        'spache_readability':textstat.spache_readability(text),
-                        'mcalpine_eflaw':textstat.mcalpine_eflaw(text),
-                        #'reading_time':textstat.reading_time(text, ms_per_char=14.69),
-                        'lexicon_count':textstat.lexicon_count(text, removepunct=True),
-                        'sentence_count':textstat.sentence_count(text)}
+                        'mcalpine_eflaw':textstat.mcalpine_eflaw(text)}
+                if result['dale_chall_readability_score']<5:
+                    result['spache_readability'] = textstat.spache_readability(text)
                 result['readability_consensus'] = (result["flesch_kincaid_grade"]+result["gunning_fog"]+result["smog_index"]+result["automated_readability_index"]+result["coleman_liau_index"]+result["linsear_write_formula"]+(result["dale_chall_readability_score"]*2-5))/7
+            
+
+            if self.return_grades:
+                grades = {k:general_float2grade(v) for k,v in result.items()}
+                if 'dale_chall_readability_score' in result:
+                    grades['dale_chall_readability_score'] = dale_chall_float2grade(result['dale_chall_readability_score'])
+                if 'spache_readability' in result:
+                    grades['spache_readability'] = spache_float2grade(result['spache_readability'])
+                result['lexicon_count'] = textstat.lexicon_count(text, removepunct=True)
+                result['sentence_count'] = textstat.sentence_count(text)
+                self.result = {'scores':result,'grades':grades}
+            else:
+                result['lexicon_count'] = textstat.lexicon_count(text, removepunct=True)
+                result['sentence_count'] = textstat.sentence_count(text)
                 self.result = result
+
+
 
     class CefrSimplifier(object):
 
@@ -3013,8 +3182,41 @@ class AdoVideoAnalyzer(object):
         else:
             self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
-    def get_video_info(self,url):
-        ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
+    def get_video_info(self, url, verbose=False, save_as=None):
+        def parse(info_dict):
+            text = None
+            lines = None
+            duration = None
+            all_subtitles = info_dict.get('subtitles')
+            if all_subtitles is not None:
+                en_subtitles = None
+                for k,v in all_subtitles.items():
+                    if k.startswith('en'):
+                        en_subtitles = v
+                if en_subtitles is not None:
+                    lines, duration = self.download_subtitles(en_subtitles)
+                    if len(lines)>0:
+                        text = ' '.join([x['text'] for x in lines])
+            video_id = info_dict.get('id')
+            return {
+                'video_id':video_id,
+                'title':info_dict.get('title'),
+                'url':info_dict.get('webpage_url'),
+                'upload_date':info_dict.get('upload_date'),
+                'duration':info_dict.get('duration'),
+                'channel_id':info_dict.get('channel_id'),
+                'channel':info_dict.get('channel'),
+                'uploader_id':info_dict.get('uploader_id'),
+                'age_limit':info_dict.get('age_limit'),
+                'categories':info_dict.get('categories'),
+                'text':text,
+                'subtitles':lines,
+                'speak_duration':duration}
+
+        if verbose==True:
+            ydl_opts = {'subtitleslangs':True}
+        else:
+            ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
         n_trials = 5
         while n_trials>0:
             try:
@@ -3025,40 +3227,71 @@ class AdoVideoAnalyzer(object):
                 n_trials -= 1
                 if n_trials == 0:
                     raise Exception(e)
-        text = None
-        lines = None
-        duration = None
-        all_subtitles = info_dict.get('subtitles')
-        if all_subtitles is not None:
-            en_subtitles = all_subtitles.get('en')
-            if en_subtitles is not None:
-                lines, duration = self.download_subtitles(en_subtitles)
-                text = ' '.join([x['text'] for x in lines])
-        return {'id':info_dict.get('id'),'title':info_dict.get('title'), 'text':text, 'subtitles':lines, 'speak_duration':duration}
+
+        if 'entries' in info_dict:
+            # if save==True:
+            #     with open(self.temp_dir.strip('\\')+'/info_dict.pkl', 'wb') as f:
+            #         pickle.dump(list(info_dict['entries']), f)
+            results = []
+            length = len(info_dict['entries'])
+            for i,x in enumerate(info_dict['entries']):
+                if verbose==True:
+                    print(f"Downloading subtitles {i+1} of {length} ...")
+                try:
+                    results.append(parse(x))
+                except:
+                    continue
+            if save_as:
+                with open(self.temp_dir.strip('\\')+f'/{save_as}_info.pkl', 'wb') as f:
+                    pickle.dump(results, f)
+            return results
+        else:
+            result = parse(info_dict)
+            if save_as:
+                with open(self.temp_dir.strip('\\')+f'/{save_as}_info.pkl', 'w') as f:
+                    pickle.dump(result, f)
+            return result
+
 
 
     def download_subtitles(self,subtitles):
-        try:
-            for x in subtitles:
-                if x['ext']=='json3':
-                    r = requests.get(x['url'])
-                    break
-            lines = []
-            duration = 0
-            for x in r.json()['events']:
-                line = []
-                for y in x['segs']:
-                    line += list(y.values())
-                line = ' '.join(line).replace('\n',' ')
-                line = re.sub(r"\([^()]*\)", "", line)
-                line = re.sub(r"\[[^()]*\]", "", line).strip(' ')
-                if line!='':
-                    duration += x['dDurationMs']
-                lines.append({'start':x['tStartMs']/1000,'end':(x['tStartMs']+x['dDurationMs'])/1000,'text':line})
-            return lines, duration/1000
-        except Exception as e:
-            print(e)
-            return None, None
+        for x in subtitles:
+            if x['ext']=='json3':
+                n_trials = 5
+                while n_trials>0:
+                    try:
+                        r = requests.get(x['url'])
+                        break
+                    except Exception as e:
+                        n_trials -= 1
+                        if n_trials == 0:
+                            raise Exception(e)
+                break
+        lines = []
+        duration = 0
+        for x in r.json()['events']:
+            line = []
+            for y in x['segs']:
+                line += [v for v in y.values() if isinstance(v, str)]
+            if len(line)==0:
+                continue
+            line = ' '.join(line)
+            new_line = []
+            for y in line.split('\n'):
+                if re.search(r"^.+(\s.+){0,2}:", y):
+                    new_line.append(re.sub(r"^.+(\s.+){0,2}:", "", line))
+                else:
+                    new_line.append(y)
+            line = ' '.join(new_line).replace('\ufeff','').replace('\xa0','')
+            line = re.sub(r"\([^()]*\)", "", line)
+            line = re.sub(r"\[[^()]*\]", "", line).strip(' ')
+            line = re.sub(r'\s+', ' ', line)
+            if line=='' or re.sub('[^A-Za-z0-9 ]+', '', line)=='' or 'dDurationMs' not in x:
+                continue
+            duration += x['dDurationMs']
+            lines.append({'start':x['tStartMs']/1000,'end':(x['tStartMs']+x['dDurationMs'])/1000,'text':line})
+        return lines, duration/1000
+
 
     def transcribe_video(self, url, video_id=None):
         if self.model is None:
@@ -3069,6 +3302,7 @@ class AdoVideoAnalyzer(object):
         else:
             filename = video_id+'.mp3'
 
+        info_dict = {}
         try:
             segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
         except:
@@ -3100,20 +3334,44 @@ class AdoVideoAnalyzer(object):
             segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
 
         segments = list(segments)
-        text = ''
+        transcription = ''
         lines = []
         speak_duration = 0
         for x in segments:
-            text += x.text
-            lines.append({'start':x.start,'end':x.end,'text':x.text.strip(' ')})
+            line = x.text.strip(' ')
+            if line=='' or line.lower()=='music':
+                continue
+            if line[-1].isalpha():
+                line += '.'
+            transcription += x.text + ' '
+            lines.append({'start':x.start,'end':x.end,'text':line})
             speak_duration += x.end-x.start
-        return {'subtitles':lines, 'transcription':text, 'speak_duration':speak_duration}
+        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
+
+    def transcribe_audio(self, file_path):
+        if self.model is None:
+            self.load_model()
+        segments, _ = self.model.transcribe(file_path, beam_size=5, language='en', word_timestamps=True)
+        segments = list(segments)
+        transcription = ''
+        lines = []
+        speak_duration = 0
+        for x in segments:
+            line = x.text.strip(' ')
+            if line=='' or line.lower()=='music':
+                continue
+            if line[-1].isalpha():
+                line += '.'
+            transcription += x.text + ' '
+            lines.append({'start':x.start,'end':x.end,'text':line})
+            speak_duration += x.end-x.start
+        return {'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
-        return min(max(0,spm*0.0595-9.9931),6)
+        return min(max(0,spm*0.0582-10.5215),6)
 
     def calculate(self, vocabulary_level,tense_level,clause_level,spm):
-        coef = np.array([0.35068207, 0.23099973, 0.3439605 , 0.35280761])
+        coef = np.array([0.41907501, 0.46284061, 0.28858665, 0.43187369])
         return round(sum(np.array([vocabulary_level,tense_level,clause_level,spm])*coef),1)
 
     def analyze_audio(self, text, speak_duration,
@@ -3134,8 +3392,76 @@ class AdoVideoAnalyzer(object):
         final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
         final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
         result['final_levels'] = final_levels
+        result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
         return result
     
+    def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
+        print('Getting video info')
+        infos = self.get_video_info(url, verbose=verbose)
+        if type(infos)!=list:
+            infos = [infos]
+        n = len(infos)
+
+        if verbose==False:
+            print(f'Analysing {n} videos')
+        results = []
+        for i, x in enumerate(infos):
+            if verbose==True:
+                print(f'Analysing video {i+1}/{n}')
+            if not transcribe:
+                if x['text'] is None:
+                    if not auto_transcribe:
+                        results.append({'video_info':x,'result':{'error':'No subtitles found. Please transcribe.'}})
+                        continue
+                else:
+                    result = self.analyze_audio(x['text'],x['speak_duration'])
+                    results.append({'video_info':x,'result':result})
+                    continue
+            transcription = self.transcribe_video(x['url'], x['video_id'])
+            result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+            x.update(transcription)
+            results.append({'video_info':x,'result':result})
+        if n==1:
+            if save_as:
+                with open(self.temp_dir.strip('\\')+f'/{save_as}_result.pkl', 'wb') as f:
+                    pickle.dump(results[0], f)
+            return results[0]
+        else:
+            if save_as:
+                with open(self.temp_dir.strip('\\')+f'/{save_as}_results.pkl', 'wb') as f:
+                    pickle.dump(results, f)
+            return results
+    
+    def analyze_audio_file(self, file_path,
+                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
+                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+        print('Preparing to transcribing')
+        transcription = self.transcribe_audio(file_path)
+        print('Analysing audio')
+        result = self.analyze_audio(transcription['text'],transcription['speak_duration'],
+                                    propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+                                    return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                                    return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                                    return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
+        return result
+
+    def seconds2time(self, seconds):
+        hours = int(seconds // 3600)
+        seconds %= 3600
+        minutes = int(seconds // 60)
+        seconds %= 60
+        milliseconds = int((seconds - int(seconds)) * 1000)
+        seconds = int(seconds)
+        return f"{hours}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+    
+    def subtitles2srt(self, subtitles):
+        srt = ''
+        for i, x in enumerate(subtitles):
+            srt += f"{i+1}\n{self.seconds2time(x['start'])} --> {self.seconds2time(x['end'])}\n{x['text']}\n\n"
+        return srt
+
 class YoutubeLogger(object):
     def debug(self, msg):
         pass
@@ -3145,3 +3471,53 @@ class YoutubeLogger(object):
 
     def error(self, msg):
         print(msg)
+
+
+
+
+
+def general_float2grade(num):
+    rounded = int(num)
+    if num>12:
+        return "College and above"
+    elif num>=4:
+        return f"{rounded}th to {rounded+1}th grade"
+    elif num>=3:
+        return "3rd to 4th grade"
+    elif num>=2:
+        return "2nd to 3rd grade"
+    elif num>=1:
+        return "1st to 2nd grade"
+    else:
+        return "Below 1st grade"
+
+
+def dale_chall_float2grade(num):
+    rounded = int(num*2-5)
+    if num<5:
+        return "4th grade or below"
+    elif num<9:
+        return f"{rounded}th to {rounded+1}th grade"
+    else:
+        return "College and above"
+
+def spache_float2grade(num):
+    rounded = int(num)
+    if num>=4:
+        return "4th grade or above";
+    elif num>=3:
+        return "3rd to 4th grade"
+    elif num>=2:
+        return "2nd to 3rd grade"
+    elif num>=1:
+        return "1st to 2nd grade"
+    else:
+        return "Below 1st grade"
+
+def float2hsk(num):
+    if num>=7:
+        return "Native"
+    elif num>=6:
+        return "HSK7-9"
+    else:
+        return f"HSK{int(num)+1}"

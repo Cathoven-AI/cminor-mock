@@ -14,12 +14,16 @@ class AdoLevelAdaptor(object):
         self.result = None
 
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=False, model="gpt-3.5-turbo"):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=True, model="gpt-3.5-turbo"):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
             openai.api_key = self.openai_api_key
+
+        if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
+            raise Exception("Language not supported. Please use English.")
+
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
 
         self.t0 = time.time()
@@ -71,6 +75,8 @@ class AdoLevelAdaptor(object):
         if by=='sentence':
             by = "paragraph"
         n = max(1,min(n,5))
+        if type(target_level)==str:
+            target_level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[target_level.upper()]
 
         if self.before_result is None:
             before_result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
@@ -246,7 +252,16 @@ class AdoLevelAdaptor(object):
         if auto_retry and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
             return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=False, model=model)
 
-        self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels, 'modified_after_levels': modified_after_levels}
+        self.result = {
+            'adaptation':after_text,
+            'before':before_levels,
+            'after': after_levels,
+            'modified_after_levels': modified_after_levels, 
+            'before_str':{k:float2cefr(v) for k,v in before_levels.items()},
+            'after_str':{k:float2cefr(v) for k,v in after_levels.items()},
+            'before_exam_stats':self.analyser.cefr.float2exams(before_levels['general_level']),
+            'after_exam_stats':self.analyser.cefr.float2exams(after_levels['general_level']),
+        }
 
 
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1, model="gpt-3.5-turbo"):
@@ -257,13 +272,14 @@ class AdoLevelAdaptor(object):
 
         n_tokens = len(gpt_tokenizer.encode(prompt))
 
-        if model=="gpt-4":
-            model_name = "gpt-4"
-        else:
-            if n_tokens>4000:
-                model_name = "gpt-3.5-turbo-16k"
-            else:
-                model_name = "gpt-3.5-turbo"
+        # if model=="gpt-4":
+        #     model_name = "gpt-4"
+        # else:
+        #     if n_tokens>4000:
+        #         model_name = "gpt-3.5-turbo-16k"
+        #     else:
+        #         model_name = "gpt-3.5-turbo"
+        model_name = 'gpt-4-1106-preview'
 
         completion = openai.ChatCompletion.create(
             model=model_name, n=n,
@@ -411,3 +427,12 @@ For each sentence, follow these rules:
                     return ''
             prompt = prompt+f"\nPassage:\n```{text}```"
         return prompt
+
+
+def float2cefr(num):
+    cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+    output = cefr.get(int(num),"Native")
+    if num<6:
+        s = "%.1f" % num
+        output += s[s.index('.'):]
+    return output
