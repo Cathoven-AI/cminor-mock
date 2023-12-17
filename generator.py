@@ -53,6 +53,7 @@ class AdoQuestionGenerator(object):
                             return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
                             return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=False)
             level = min(int(result["final_levels"]["general_level"]),5)
+            print(f"Level detected: {level}")
         elif type(level)==str:
             level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[level.upper()]
 
@@ -61,7 +62,16 @@ class AdoQuestionGenerator(object):
             target_level = int2cefr[level]
             max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
             min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
-            level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, each sentence should have no less than {min_length} words and no more than {max_length} words. The vocabulary should be simple and below {target_level} level."
+            if kind!='multiple_choice_cloze':
+                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, "
+            else:
+                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, each sentence should have no more than {max_length} words. "
+            if level<=2:
+                level_prompt += f"The vocabulary and sentence structure should be simple and below {target_level} level. Don't use technical and academic words."
+            elif level<=4:
+                level_prompt += f"The vocabulary should be simple and below {target_level} level."
+            else:
+                level_prompt = ''
         else:
             level_prompt = ''
 
@@ -676,7 +686,7 @@ Writing:
         else:
             level_prompt = ''
             
-        content = f'''You are a professional {writing_language} teacher. Your task is to improve students' writings in terms of vocabulary, grammar, sentence structure, paragraphing,  and coherence. {level_prompt}
+        content = f'''You are a professional {writing_language} teacher. Your task is to improve students' writings in terms of vocabulary, grammar, sentence structure, paragraphing, and coherence. {level_prompt}
 You can revise one sentence or several sentences at a time when appropriate (for example, when two sentences need to be combined or one sentence needs to be broken down into two).
 You can divide, combine or rearrange sentences and paragraphing to improve coherence and cohesion (for example, when a paragraph needs to be divided, add a new line '\\n' at the appropriate position)..
 You need to output the original parts of text, the revision, the types of revision{comment_prompt2} in a Python list of dictionaries like this {json_format}
