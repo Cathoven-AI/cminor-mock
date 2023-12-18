@@ -63,15 +63,17 @@ class AdoQuestionGenerator(object):
             max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
             min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
             if kind!='multiple_choice_cloze':
-                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, "
+                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers,"
             else:
-                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, each sentence should have no more than {max_length} words. "
+                level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers, each sentence should have no more than {max_length} words."
             if level<=2:
-                level_prompt += f"The vocabulary and sentence structure should be simple and below {target_level} level. Don't use technical and academic words."
+                level_prompt += f" You should only use simple vocabulary and sentence structure below {target_level} level so that a child can understand. Don't use technical and academic words."
             elif level<=4:
-                level_prompt += f"The vocabulary should be simple and below {target_level} level."
+                level_prompt += f" You should only use vocabulary strictly below {target_level} level."
             else:
                 level_prompt = ''
+            if level_prompt!='':
+                level_prompt += ''' If you fail to stick to these difficulty rules, the students will not understand the questions, and your boss will be angry and punish you.'''
         else:
             level_prompt = ''
 
