@@ -121,7 +121,7 @@ class SolarSpacy(Language):
 		infixes = inf + [r"(?<=[0-9])[+*^](?=[0-9-])", r"(?<=[0-9])-(?=-)", '''[?!&:,()”;"—\[\]]''']  # Add the removed rule after subtracting (?<=[0-9])-(?=[0-9]) pattern
 
 		prefixes = list(nlp.Defaults.prefixes) + spacy.lang.char_classes.LIST_HYPHENS
-		suffixes = list(nlp.Defaults.suffixes) + spacy.lang.char_classes.LIST_HYPHENS
+		#suffixes = list(nlp.Defaults.suffixes) + spacy.lang.char_classes.LIST_HYPHENS
 
 		rules = nlp.Defaults.tokenizer_exceptions
 		rules["'tis"] = [{"ORTH": "'t"}, {"ORTH": "is"}]
@@ -138,8 +138,8 @@ class SolarSpacy(Language):
 			rules[x.upper()] = [{"ORTH": x.upper()}]
 			rules[x.capitalize()] = [{"ORTH": x.capitalize()}]
 			
-		return Tokenizer(nlp.vocab, prefix_search=compile_prefix_regex(prefixes).search,
-									suffix_search=compile_prefix_regex(suffixes).search,
+		return Tokenizer(nlp.vocab, prefix_search=compile_prefix_regex(prefixes).search,#nlp.tokenizer.prefix_search,
+									suffix_search=nlp.tokenizer.suffix_search,#compile_prefix_regex(suffixes).search,
 									infix_finditer=compile_infix_regex(infixes).finditer,
 									token_match=nlp.tokenizer.token_match,
 									rules=rules)
