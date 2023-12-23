@@ -3182,7 +3182,7 @@ class AdoVideoAnalyzer(object):
         else:
             self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
-    def get_video_info(self, url, verbose=False, save_as=None):
+    def get_video_info(self, url, verbose=False, save_as=None, allow_playlist=False):
         def parse(info_dict):
             text = None
             lines = None
@@ -3213,10 +3213,13 @@ class AdoVideoAnalyzer(object):
                 'subtitles':lines,
                 'speak_duration':duration}
 
-        if verbose==True:
-            ydl_opts = {'subtitleslangs':True}
-        else:
-            ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
+        if allow_playlist==False and 'v=' not in url and 'list=' in url:
+            raise Exception("Playlist is not supported.")
+        
+        ydl_opts = {'subtitleslangs':True, 'noplaylist':True}
+        if verbose!=True:
+            ydl_opts['logger'] = YoutubeLogger()
+
         n_trials = 5
         while n_trials>0:
             try:
@@ -3224,6 +3227,8 @@ class AdoVideoAnalyzer(object):
                     info_dict = ydl.extract_info(url, download=False)
                 break
             except Exception as e:
+                if '404' in str(e):
+                    raise Exception(e)
                 n_trials -= 1
                 if n_trials == 0:
                     raise Exception(e)
@@ -3406,7 +3411,15 @@ class AdoVideoAnalyzer(object):
     
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
         print('Getting video info')
-        infos = self.get_video_info(url, verbose=verbose)
+        try:
+            infos = self.get_video_info(url, verbose=verbose)
+        except Exception as e:
+            if '404' in str(e):
+                return {'video_info':None,'result':{'error':"Your link is not a valid YouTube video url."}}
+            elif 'is not supported' in str(e):
+                return {'video_info':None,'result':{'error':str(e)}}
+            else:
+                raise Exception(e)
         if type(infos)!=list:
             infos = [infos]
         n = len(infos)
