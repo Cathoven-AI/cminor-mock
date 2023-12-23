@@ -3420,7 +3420,7 @@ class AdoVideoAnalyzer(object):
             if not transcribe:
                 if x['text'] is None:
                     if not auto_transcribe:
-                        results.append({'video_info':x,'result':{'error':'No subtitles found. Please transcribe.'}})
+                        results.append({'video_info':x,'result':{'error':'No subtitles found. Analysing videos without English subtitles is not supported yet.'}})
                         continue
                 else:
                     result = self.analyze_audio(x['subtitles'])
