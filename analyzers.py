@@ -3368,29 +3368,38 @@ class AdoVideoAnalyzer(object):
         return {'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
-        return min(max(0,spm*0.0582-10.5215),6)
+        a,b = [  0.07729107, -14.62657981]
+        return spm*a+b
 
     def calculate(self, vocabulary_level,tense_level,clause_level,spm):
         coef = np.array([0.41907501, 0.46284061, 0.28858665, 0.43187369])
         return round(sum(np.array([vocabulary_level,tense_level,clause_level,spm])*coef),1)
 
-    def analyze_audio(self, text, speak_duration,
+    def analyze_audio(self, subtitles,
                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                       return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
         
-        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+        spms = []
+        texts = []
+        for i in range(len(subtitles)):
+            spms.append(solar_word.count_syllables(subtitles[i]['text'])/max(0.01,subtitles[i]['end']-subtitles[i]['start'])*60)
+            texts.append(subtitles[i]['text'].strip(' '))
+
+        result = self.analyser.analyze_cefr(' '.join(texts),propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
                         return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
         final_levels = result['final_levels']
-        n_syllables = solar_word.count_syllables(text)
-        
-        spm = n_syllables*60/speak_duration
+
+        spm = np.median(spms)
         speech_rate_level = self.spm_level(spm)
-        final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
-        final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
+        final_levels['speech_rate_level'] = round(max(0,min(speech_rate_level,6)),1)
+        #final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
+        final_levels['general_level'] = np.mean([final_levels['vocabulary_level'],final_levels['clause_level'],max(0,speech_rate_level)])
+        final_levels['general_level'] = round(max(final_levels['vocabulary_level']-0.5,final_levels['tense_level']-0.5,final_levels['clause_level']-0.5,final_levels['general_level']),1)
+        result['speech_stats'] = {'syllable_per_minute':spm}
         result['final_levels'] = final_levels
         result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
         return result
@@ -3414,11 +3423,11 @@ class AdoVideoAnalyzer(object):
                         results.append({'video_info':x,'result':{'error':'No subtitles found. Please transcribe.'}})
                         continue
                 else:
-                    result = self.analyze_audio(x['text'],x['speak_duration'])
+                    result = self.analyze_audio(x['subtitles'])
                     results.append({'video_info':x,'result':result})
                     continue
             transcription = self.transcribe_video(x['url'], x['video_id'])
-            result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+            result = self.analyze_audio(transcription['subtitles'])
             x.update(transcription)
             results.append({'video_info':x,'result':result})
         if n==1:
@@ -3440,7 +3449,7 @@ class AdoVideoAnalyzer(object):
         print('Preparing to transcribing')
         transcription = self.transcribe_audio(file_path)
         print('Analysing audio')
-        result = self.analyze_audio(transcription['text'],transcription['speak_duration'],
+        result = self.analyze_audio(transcription['subtitles'],
                                     propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                                     return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                                     return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
