@@ -595,6 +595,8 @@ The types of revision can be one or more of the following:
 If the original sentences are already good, don't include them in the list.
 {language_prompt}
 
+If you do your job well by following all the instructions, I will pay you a bonus of $200.
+
 Writing:
 {text}
 '''
@@ -621,6 +623,7 @@ Writing:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
         
         revised_text = text+''
+        result2 = []
         for x in result:
             if x['original'] in text:
                 revised_text = revised_text.replace(x['original'], x['revision'])
@@ -637,7 +640,9 @@ Writing:
                             revised_text = revised_text.replace(originals[i], x['revision'])
                         else:
                             revised_text = revised_text.replace(originals[i], '')
-
+            diff = self.mark_differences(x['original'],x['revision'])
+            x.update({'original_tagged':diff[0],'revision_tagged':diff[1]})
+            result2.append(x)
 
         revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                             return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
@@ -649,7 +654,8 @@ Writing:
         original_analysis['final_levels']['general_level'] = general_level
         original_analysis['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in original_analysis['final_levels'].items()}
 
-        return {'revised_text':revised_text,'revisions':result,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+        diff = self.mark_differences(text,revised_text)
+        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
 
     def enhance(self, text, level=None, comment=False, writing_language='English', comment_language=None, auto_retry=2, override_messages=None):
         if self.openai_api_key is None:
@@ -702,6 +708,8 @@ The types of revision can be one or more of the following:
 If the original sentences are already good, don't include them in the list.
 {language_prompt}
 
+If you do your job well by following all the instructions, I will pay you a bonus of $200.
+
 Writing:
 {text}
 '''
@@ -728,6 +736,7 @@ Writing:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
         
         revised_text = text+''
+        result2 = []
         for x in result:
             if x['original'] in text:
                 revised_text = revised_text.replace(x['original'], x['revision'])
@@ -744,6 +753,10 @@ Writing:
                             revised_text = revised_text.replace(originals[i], x['revision'])
                         else:
                             revised_text = revised_text.replace(originals[i], '')
+            diff = self.mark_differences(x['original'],x['revision'])
+            x.update({'original_tagged':diff[0],'revision_tagged':diff[1]})
+            result2.append(x)
+
 
         original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                             return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
@@ -751,9 +764,9 @@ Writing:
         revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                             return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                             return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
-        
 
-        return {'revised_text':revised_text,'revisions':result,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+        diff = self.mark_differences(text,revised_text)
+        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
     
     def mark_differences(self, str1, str2):
         words1 = str1.split(' ')
