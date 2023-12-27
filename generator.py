@@ -615,12 +615,12 @@ Writing:
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.generate_questions(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
-                    return self.generate_questions(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
+                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
         
         revised_text = text+''
         result2 = []
@@ -728,12 +728,12 @@ Writing:
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.generate_questions(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
-                    return self.generate_questions(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
+                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {response}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
         
         revised_text = text+''
         result2 = []
