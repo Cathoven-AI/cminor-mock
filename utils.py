@@ -75,3 +75,20 @@ def sim_spacy_cross_sent(doc):
             sims.append(sentences[x].similarity(sentences[y]))
     return np.mean(sims)
 
+class InformError(Exception):
+    def __init__(self, message):
+        super().__init__(str(message))
+
+def check_level_input_and_int(level) -> int:
+    level_str2int = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}
+    if isinstance(level,str):
+        if level.upper() not in level_str2int:
+            raise InformError("level should be one of 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'.")
+        level = level_str2int[level.upper()]
+    elif isinstance(level,(int,float)):
+        if level<0 or level>=6:
+            raise InformError("level should be between 0 and 5.")
+        level = int(level)
+    else:
+        raise InformError("level should be one of 'A1', 'A2', 'B1', 'B2', 'C1', 'C2' or a number between 0 and 5.")
+    return level

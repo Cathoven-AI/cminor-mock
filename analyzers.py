@@ -18,6 +18,7 @@ from sklearn.decomposition import TruncatedSVD
 from scipy.optimize import curve_fit, fsolve
 from scipy.stats import percentileofscore
 from .lemmatizers import fine_lemmatize
+from .utils import InformError
 from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
@@ -154,7 +155,7 @@ class AdoTextAnalyzer(object):
                     return_result=True,clear_simplifier=True,return_modified_final_levels=False):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise Exception("Language not supported. Please use English.")
+            raise InformError("Language not supported. Please use English.")
 
         text = self.clean_text(text)
         if text!=self.text or custom_dictionary!={}:
@@ -188,12 +189,12 @@ class AdoTextAnalyzer(object):
 
     def analyze_readability(self,text,language='en',return_grades=False,return_result=True):
         text = self.clean_text(text)
-        if language=='en':
-            detected_language = detect(text.replace('\n',' '))['lang']
-            if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
-                raise Exception("Language not supported.")
-            else:
-                language = detected_language
+        # if language=='en':
+        #     detected_language = detect(text.replace('\n',' '))['lang']
+        #     if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
+        #         raise InformError("Language not supported.")
+        #     else:
+        #         language = detected_language
 
         if text!=self.text or self.readability is None or self.readability.return_grades!=return_grades:
             self.doc = None
@@ -213,7 +214,7 @@ class AdoTextAnalyzer(object):
     def analyze_catile(self,text,return_result=True):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise Exception("Language not supported. Please use English.")
+            raise InformError("Language not supported. Please use English.")
             
         text = self.clean_text(text)
         if text!=self.text:
@@ -3214,7 +3215,7 @@ class AdoVideoAnalyzer(object):
                 'speak_duration':duration}
 
         if allow_playlist==False and 'v=' not in url and 'list=' in url:
-            raise Exception("Playlist is not supported.")
+            raise InformError("Playlist is not supported.")
         
         ydl_opts = {'subtitleslangs':True, 'noplaylist':True}
         if verbose!=True:
@@ -3227,8 +3228,10 @@ class AdoVideoAnalyzer(object):
                     info_dict = ydl.extract_info(url, download=False)
                 break
             except Exception as e:
-                if '404' in str(e):
-                    raise Exception(e)
+                if '404' in str(e) or 'Unsupported' in str(e):
+                    raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
+                elif '403' in str(e):
+                    raise InformError("Access to the link is forbidden. Please make sure you have the permission to access the video.")
                 n_trials -= 1
                 if n_trials == 0:
                     raise Exception(e)
@@ -3411,15 +3414,8 @@ class AdoVideoAnalyzer(object):
     
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
         print('Getting video info')
-        try:
-            infos = self.get_video_info(url, verbose=verbose)
-        except Exception as e:
-            if '404' in str(e):
-                return {'video_info':None,'result':{'error':"Your link is not a valid YouTube video url."}}
-            elif 'is not supported' in str(e):
-                return {'video_info':None,'result':{'error':str(e)}}
-            else:
-                raise Exception(e)
+        infos = self.get_video_info(url, verbose=verbose)
+
         if type(infos)!=list:
             infos = [infos]
         n = len(infos)

@@ -2,6 +2,7 @@ import numpy as np
 import openai, warnings, time, os, sys, ast
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
+from .utils import InformError, check_level_input_and_int
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 gpt_tokenizer = GPT2Tokenizer.from_pretrained(os.path.join(BASE_DIR, "files/model_files/gpt_tokenizer"))
@@ -21,8 +22,9 @@ class AdoLevelAdaptor(object):
         else:
             openai.api_key = self.openai_api_key
 
+        target_level = check_level_input_and_int(target_level)
         if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
-            raise Exception("Language not supported. Please use English.")
+            raise InformError("Language not supported. Please use English.")
 
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
 
@@ -75,8 +77,6 @@ class AdoLevelAdaptor(object):
         if by=='sentence':
             by = "paragraph"
         n = max(1,min(n,5))
-        if type(target_level)==str:
-            target_level = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}[target_level.upper()]
 
         if self.before_result is None:
             before_result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
