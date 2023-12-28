@@ -3214,8 +3214,11 @@ class AdoVideoAnalyzer(object):
                 'subtitles':lines,
                 'speak_duration':duration}
 
-        if allow_playlist==False and 'v=' not in url and 'list=' in url:
-            raise InformError("Playlist is not supported.")
+        if allow_playlist==False and 'v=' not in url:
+            if 'list=' in url:
+                raise InformError("Playlist is not supported.")
+            else:
+                raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
         
         ydl_opts = {'subtitleslangs':True, 'noplaylist':True}
         if verbose!=True:
