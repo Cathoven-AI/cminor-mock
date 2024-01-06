@@ -18,6 +18,7 @@ from sklearn.decomposition import TruncatedSVD
 from scipy.optimize import curve_fit, fsolve
 from scipy.stats import percentileofscore
 from .lemmatizers import fine_lemmatize
+from .utils import InformError
 from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
@@ -154,7 +155,7 @@ class AdoTextAnalyzer(object):
                     return_result=True,clear_simplifier=True,return_modified_final_levels=False):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise Exception("Language not supported. Please use English.")
+            raise InformError("Language not supported. Please use English.")
 
         text = self.clean_text(text)
         if text!=self.text or custom_dictionary!={}:
@@ -188,12 +189,12 @@ class AdoTextAnalyzer(object):
 
     def analyze_readability(self,text,language='en',return_grades=False,return_result=True):
         text = self.clean_text(text)
-        if language=='en':
-            detected_language = detect(text.replace('\n',' '))['lang']
-            if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
-                raise Exception("Language not supported.")
-            else:
-                language = detected_language
+        # if language=='en':
+        #     detected_language = detect(text.replace('\n',' '))['lang']
+        #     if detected_language not in ['es',"it","pl",'de','fr','nl','ru','en']:
+        #         raise InformError("Language not supported.")
+        #     else:
+        #         language = detected_language
 
         if text!=self.text or self.readability is None or self.readability.return_grades!=return_grades:
             self.doc = None
@@ -213,7 +214,7 @@ class AdoTextAnalyzer(object):
     def analyze_catile(self,text,return_result=True):
 
         if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise Exception("Language not supported. Please use English.")
+            raise InformError("Language not supported. Please use English.")
             
         text = self.clean_text(text)
         if text!=self.text:
@@ -3182,7 +3183,7 @@ class AdoVideoAnalyzer(object):
         else:
             self.model = WhisperModel('medium.en', device="cpu", compute_type="int8")
 
-    def get_video_info(self, url, verbose=False, save_as=None):
+    def get_video_info(self, url, verbose=False, save_as=None, allow_playlist=False):
         def parse(info_dict):
             text = None
             lines = None
@@ -3213,10 +3214,16 @@ class AdoVideoAnalyzer(object):
                 'subtitles':lines,
                 'speak_duration':duration}
 
-        if verbose==True:
-            ydl_opts = {'subtitleslangs':True}
-        else:
-            ydl_opts = {'subtitleslangs':True,'logger':YoutubeLogger()}
+        if allow_playlist==False and 'v=' not in url:
+            if 'list=' in url:
+                raise InformError("Playlist is not supported.")
+            else:
+                raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
+        
+        ydl_opts = {'subtitleslangs':True, 'noplaylist':True}
+        if verbose!=True:
+            ydl_opts['logger'] = YoutubeLogger()
+
         n_trials = 5
         while n_trials>0:
             try:
@@ -3224,6 +3231,10 @@ class AdoVideoAnalyzer(object):
                     info_dict = ydl.extract_info(url, download=False)
                 break
             except Exception as e:
+                if '404' in str(e) or 'Unsupported' in str(e):
+                    raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
+                elif '403' in str(e):
+                    raise InformError("Access to the link is forbidden. Please make sure you have the permission to access the video.")
                 n_trials -= 1
                 if n_trials == 0:
                     raise Exception(e)
@@ -3368,29 +3379,38 @@ class AdoVideoAnalyzer(object):
         return {'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
-        return min(max(0,spm*0.0582-10.5215),6)
+        a,b = [  0.07729107, -14.62657981]
+        return spm*a+b
 
     def calculate(self, vocabulary_level,tense_level,clause_level,spm):
         coef = np.array([0.41907501, 0.46284061, 0.28858665, 0.43187369])
         return round(sum(np.array([vocabulary_level,tense_level,clause_level,spm])*coef),1)
 
-    def analyze_audio(self, text, speak_duration,
+    def analyze_audio(self, subtitles,
                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
                       return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
                       return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
                       return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
         
-        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
+        spms = []
+        texts = []
+        for i in range(len(subtitles)):
+            spms.append(solar_word.count_syllables(subtitles[i]['text'])/max(0.01,subtitles[i]['end']-subtitles[i]['start'])*60)
+            texts.append(subtitles[i]['text'].strip(' '))
+
+        result = self.analyser.analyze_cefr(' '.join(texts),propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
                         return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
         final_levels = result['final_levels']
-        n_syllables = solar_word.count_syllables(text)
-        
-        spm = n_syllables*60/speak_duration
+
+        spm = np.median(spms)
         speech_rate_level = self.spm_level(spm)
-        final_levels['speech_rate_level'] = round(self.spm_level(spm),1)
-        final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
+        final_levels['speech_rate_level'] = round(max(0,min(speech_rate_level,6)),1)
+        #final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
+        final_levels['general_level'] = np.mean([final_levels['vocabulary_level'],final_levels['clause_level'],max(0,speech_rate_level)])
+        final_levels['general_level'] = round(max(final_levels['vocabulary_level']-0.5,final_levels['tense_level']-0.5,final_levels['clause_level']-0.5,final_levels['general_level']),1)
+        result['speech_stats'] = {'syllable_per_minute':spm}
         result['final_levels'] = final_levels
         result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
         return result
@@ -3398,6 +3418,7 @@ class AdoVideoAnalyzer(object):
     def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
         print('Getting video info')
         infos = self.get_video_info(url, verbose=verbose)
+
         if type(infos)!=list:
             infos = [infos]
         n = len(infos)
@@ -3411,14 +3432,14 @@ class AdoVideoAnalyzer(object):
             if not transcribe:
                 if x['text'] is None:
                     if not auto_transcribe:
-                        results.append({'video_info':x,'result':{'error':'No subtitles found. Please transcribe.'}})
+                        results.append({'video_info':x,'result':{'error':'No subtitles found. Analysing videos without English subtitles is not supported yet.'}})
                         continue
                 else:
-                    result = self.analyze_audio(x['text'],x['speak_duration'])
+                    result = self.analyze_audio(x['subtitles'])
                     results.append({'video_info':x,'result':result})
                     continue
             transcription = self.transcribe_video(x['url'], x['video_id'])
-            result = self.analyze_audio(transcription['text'],transcription['speak_duration'])
+            result = self.analyze_audio(transcription['subtitles'])
             x.update(transcription)
             results.append({'video_info':x,'result':result})
         if n==1:
@@ -3440,7 +3461,7 @@ class AdoVideoAnalyzer(object):
         print('Preparing to transcribing')
         transcription = self.transcribe_audio(file_path)
         print('Analysing audio')
-        result = self.analyze_audio(transcription['text'],transcription['speak_duration'],
+        result = self.analyze_audio(transcription['subtitles'],
                                     propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
                                     return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                                     return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,

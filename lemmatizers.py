@@ -97,6 +97,12 @@ def fine_lemmatize(x,doc,spacy):
     elif x.pos_ == "PUNCT" and len(re.findall(r'[A-Za-z]', x.orth_))>=6:
         x.pos_ = "ADJ"
 
+    if x.lemma_=='' and x.orth_!='':
+        x.lemma_ = x.orth_
+
+    no_hyphen = x.lemma_.strip('-')
+    if no_hyphen!='':
+        x.lemma_ = no_hyphen
     #if x.lemma_.endswith('.') and not x.orth_[0].isupper() and not '.' in x.lemma_.strip('.'):
     #    x.lemma_ = x.lemma_.strip('.')
     return x
