@@ -651,7 +651,7 @@ Writing:
                         else:
                             revised_text = revised_text.replace(originals[i], '')
             diff = self.mark_differences(x['original'],x['revision'])
-            x.update({'original_tagged':diff[0],'revision_tagged':diff[1]})
+            x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
         revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
@@ -665,7 +665,7 @@ Writing:
         original_analysis['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in original_analysis['final_levels'].items()}
 
         diff = self.mark_differences(text,revised_text)
-        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'combined_text_tagged':diff[2],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
 
     def enhance(self, text, level=None, comment=False, writing_language='English', comment_language=None, auto_retry=2, override_messages=None):
         if self.openai_api_key is None:
