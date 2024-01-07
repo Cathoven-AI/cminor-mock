@@ -761,7 +761,7 @@ Writing:
                         else:
                             revised_text = revised_text.replace(originals[i], '')
             diff = self.mark_differences(x['original'],x['revision'])
-            x.update({'original_tagged':diff[0],'revision_tagged':diff[1]})
+            x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
 
@@ -773,7 +773,7 @@ Writing:
                             return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
 
         diff = self.mark_differences(text,revised_text)
-        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
+        return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'combined_text_tagged':diff[2],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
     
     def mark_differences(self, str1, str2):
         words1 = str1.split(' ')
@@ -782,17 +782,21 @@ Writing:
         diff = list(difflib.ndiff(words1, words2))
         marked_str1 = []
         marked_str2 = []
+        both = []
 
         for d in diff:
             word = d[2:]
             if d.startswith('?'):
                 continue
             if d.startswith('-'):
-                marked_str1.append(f'<u>{word}</u>')
+                marked_str1.append(f'<s>{word}</s>')
+                both.append(f'<s>{word}</s>')
             elif d.startswith('+'):
-                marked_str2.append(f'<u>{word}</u>')
+                marked_str2.append(f'<b>{word}</b>')
+                both.append(f'<b>{word}</b>')
             else:
                 marked_str1.append(word)
                 marked_str2.append(word)
+                both.append(word)
 
-        return ' '.join(marked_str1),' '.join(marked_str2)
+        return ' '.join(marked_str1),' '.join(marked_str2), ' '.join(both)
