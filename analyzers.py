@@ -2026,6 +2026,10 @@ class AdoTextAnalyzer(object):
 
                             level = None
                             if len(custom_dictionary)>0:
+                                for k, v in custom_dictionary.items():
+                                    if isinstance(k, list):
+                                        custom_dictionary[tuple(k)] = v
+                                        del custom_dictionary[k]
                                 for key in [word_lemma,word_orth,x.lemma_,x.orth_.lower(),x.orth_]:
                                     level = custom_dictionary.get(key,None)
                                     if level is not None:
@@ -3220,7 +3224,7 @@ class AdoVideoAnalyzer(object):
             else:
                 raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
         
-        ydl_opts = {'subtitleslangs':True, 'noplaylist':True}
+        ydl_opts = {'subtitleslangs':True, 'noplaylist':True, 'outtmpl': self.temp_dir.strip('\\')+'/'+str(np.random.randint(1000000000,9999999999))}
         if verbose!=True:
             ydl_opts['logger'] = YoutubeLogger()
 
@@ -3446,6 +3450,8 @@ class AdoVideoAnalyzer(object):
             if save_as:
                 with open(self.temp_dir.strip('\\')+f'/{save_as}_result.pkl', 'wb') as f:
                     pickle.dump(results[0], f)
+            if 'error' in results[0]['result']:
+                raise InformError(results[0]['result']['error'])
             return results[0]
         else:
             if save_as:
