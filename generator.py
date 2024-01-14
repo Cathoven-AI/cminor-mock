@@ -776,8 +776,8 @@ Writing:
         return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'combined_text_tagged':diff[2],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}
     
     def mark_differences(self, str1, str2):
-        words1 = str1.split(' ')
-        words2 = str2.split(' ')
+        words1 = str1.replace('\n',' \n').split(' ')
+        words2 = str2.replace('\n',' \n').split(' ')
 
         diff = list(difflib.ndiff(words1, words2))
         marked_str1 = []
@@ -799,4 +799,4 @@ Writing:
                 marked_str2.append(word)
                 both.append(word)
 
-        return ' '.join(marked_str1),' '.join(marked_str2), ' '.join(both)
+        return ' '.join(marked_str1).replace(' \n','\n'),' '.join(marked_str2).replace(' \n','\n'), ' '.join(both).replace(' \n','\n')
