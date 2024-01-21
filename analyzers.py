@@ -3224,7 +3224,7 @@ class AdoVideoAnalyzer(object):
             else:
                 raise InformError("The link is not supported. Please make sure it is a valid YouTube video link.")
         
-        ydl_opts = {'subtitleslangs':True, 'noplaylist':True, 'outtmpl': self.temp_dir.strip('\\')+'/'+str(np.random.randint(1000000000,9999999999))}
+        ydl_opts = {'subtitleslangs':True, 'noplaylist':True, 'outtmpl': self.temp_dir.strip('\\')+'/'+''.join([str(np.random.randint(0,9)) for i in range(10)])}
         if verbose!=True:
             ydl_opts['logger'] = YoutubeLogger()
 
@@ -3262,6 +3262,8 @@ class AdoVideoAnalyzer(object):
             return results
         else:
             result = parse(info_dict)
+            if allow_playlist==False and result.get('duration',0)>900:
+                raise InformError("This video is too long. Please choose a video that is less than 15 minutes long.")
             if save_as:
                 with open(self.temp_dir.strip('\\')+f'/{save_as}_info.pkl', 'w') as f:
                     pickle.dump(result, f)
