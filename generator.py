@@ -505,12 +505,17 @@ In the meantime, the text should meet the following requirements:
         print(f"Trying {n_trials}")
         # if n_trials>=3:
         #     model = "gpt-4"
-        completion = openai.ChatCompletion.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            n=1
-        )
-        text = parse_response(completion['choices'][0]['message']['content'])['text']
+        for i in range(3):
+            try:
+                completion = openai.ChatCompletion.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    n=1
+                )
+                text = parse_response(completion['choices'][0]['message']['content'])['text']
+                break
+            except:
+                continue
         result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
