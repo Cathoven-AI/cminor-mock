@@ -3216,7 +3216,7 @@ class AdoVideoAnalyzer(object):
                 'subtitles':lines,
                 'speak_duration':duration}
 
-        if allow_playlist==False and 'v=' not in url:
+        if allow_playlist==False and not ('v=' in url or 'youtu.be' in url):
             if 'list=' in url:
                 raise InformError("Playlist is not supported.")
             else:
