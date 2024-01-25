@@ -73,7 +73,7 @@ class AdoLevelAdaptor(object):
             return pieces
 
 
-    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", min_piece_length=100, auto_retry=False, model="gpt-3.5-turbo"):
+    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", min_piece_length=200, auto_retry=False, model="gpt-3.5-turbo"):
         if by=='sentence':
             by = "paragraph"
         auto_retry = int(auto_retry)
@@ -297,7 +297,7 @@ class AdoLevelAdaptor(object):
     def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change='vocabulary', direction="down",model="gpt-3.5-turbo"):
         n = min(n,10)
         model_name = 'gpt-4-1106-preview'
-        n_per_call = min(max(1,int(8000/len(text.split(' '))-1)),n)
+        n_per_call = min(max(1,int(4000/len(text.split(' '))-1)),n)
         n_self_try = 3
         candidates = []
 
