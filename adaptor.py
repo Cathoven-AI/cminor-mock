@@ -310,6 +310,11 @@ class AdoLevelAdaptor(object):
                     messages=[{"role": "user", "content": prompt}]
                 )
                 self.openai_time += time.time()-openai_t0
+
+                for x in completion['choices']:
+                    x = x['message']['content'].strip()
+                    x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
+                    candidates.append(x)
             except Exception as e:
                 n_self_try -= 1
                 if n_self_try==0:
@@ -317,10 +322,6 @@ class AdoLevelAdaptor(object):
                     return
                 print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
-            for x in completion['choices']:
-                x = x['message']['content'].strip()
-                x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
-                candidates.append(x)
 
         if direction=="down":
             if change!='vocabulary':
