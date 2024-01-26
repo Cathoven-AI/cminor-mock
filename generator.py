@@ -1,7 +1,7 @@
 import numpy as np
 import openai, json, ast, warnings, os, sys, re, difflib
 from nltk.tokenize import sent_tokenize
-from .utils import InformError, check_level_input_and_int
+from .utils import InformError, clean_target_level_input
 
 def parse_response(response):
     try:
@@ -60,7 +60,7 @@ class AdoQuestionGenerator(object):
                 level = min(int(result["final_levels"]["general_level"]),5)
                 print(f"Level detected: {level}")
         else:
-            level = check_level_input_and_int(level)
+            level = clean_target_level_input(level)
         
         if level is not None:
             target_level = level_int2str[level]
@@ -412,7 +412,7 @@ class AdoTextGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        level = check_level_input_and_int(level)
+        level = clean_target_level_input(level)
 
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
 
@@ -694,7 +694,7 @@ Writing:
             language_prompt = ''
             
         if level:
-            level = check_level_input_and_int(level)
+            level = clean_target_level_input(level)
             
             if level in level_int2str:
                 target_level = level_int2str[level]
