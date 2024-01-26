@@ -1,11 +1,14 @@
 import numpy as np
+import pandas as pd
 import openai, warnings, time, os, sys, ast
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
-from .utils import InformError, check_level_input_and_int
+from .utils import InformError, clean_target_level_input
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 gpt_tokenizer = GPT2Tokenizer.from_pretrained(os.path.join(BASE_DIR, "files/model_files/gpt_tokenizer"))
+df_catile_examples = pd.read_csv(os.path.join(BASE_DIR, 'files/model_files/catile_example_texts.csv'))
+df_catile_examples = df_catile_examples[~((df_catile_examples['catile']<500) & df_catile_examples['content'].apply(lambda x: x.count('?')>=4))]
 
 class AdoLevelAdaptor(object):
     def __init__(self, text_analyser, openai_api_key=None):
@@ -15,26 +18,40 @@ class AdoLevelAdaptor(object):
         self.result = None
 
 
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=True, model="gpt-3.5-turbo"):
+    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=True, model="cefr"):
+        self.t0 = time.time()
+        self.openai_time = 0
+
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
             openai.api_key = self.openai_api_key
 
-        target_level = check_level_input_and_int(target_level)
         if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
             raise InformError("Language not supported. Please use English.")
-
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
-
-        self.t0 = time.time()
-        self.openai_time = 0
+        by = 'piece'
 
         self.before_result = None
-        self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, min_piece_length=min_piece_length, auto_retry=auto_retry, model=model)
-        print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
+        self.example_texts = None
 
+        model = model.lower()
+        target_level = clean_target_level_input(target_level, model=model)
+        if model == 'catile':
+            auto_retry = max(0,min(int(auto_retry),5))
+            if target_level<500:
+                n = max(1,min(n,5))
+                self.start_adapt_catile(text, target_level, n=1, auto_retry=max(n-1,auto_retry))
+            else:
+                n = max(1,min(n,2))
+                self.start_adapt_catile(text, target_level, n=n, auto_retry=auto_retry)
+        else:
+            n = max(1,min(n,int(5-len(text.split(' '))/200)))
+            auto_retry = max(0,min(int(auto_retry),int(5-len(text.split(' '))/150)))
+            self.start_adapt_cefr(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, min_piece_length=min_piece_length, auto_retry=auto_retry)
+
+        print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
         if return_result:
             return self.result
 
@@ -73,12 +90,7 @@ class AdoLevelAdaptor(object):
             return pieces
 
 
-    def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", min_piece_length=200, auto_retry=False, model="gpt-3.5-turbo"):
-        if by=='sentence':
-            by = "paragraph"
-        auto_retry = int(auto_retry)
-
-        n = max(1,min(n,5))
+    def start_adapt_cefr(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="piece", min_piece_length=200, auto_retry=False):
 
         if self.before_result is None:
             before_result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=False,
@@ -112,8 +124,6 @@ class AdoLevelAdaptor(object):
             pieces += self.divide_piece(text, min_piece_length=min_piece_length, by=by)
         else:
             pieces = self.divide_piece(text, min_piece_length=2000, by=by)
-
-
 
         n_pieces = len(pieces)
 
@@ -156,18 +166,18 @@ class AdoLevelAdaptor(object):
                     continue
             adaptation = piece
             if change_vocabulary>0 or change_clause>0:
-                adaptation, after_result = self.get_adaptation(adaptation, target_level, target_adjustment=target_adjustment, n=n, direction="up", model=model)
+                adaptation, after_result = self.get_adaptation(adaptation, target_level, target_adjustment=target_adjustment, n=n, direction="up")
                 if int(after_result['final_levels']['general_level'])>target_level:
                     if int(after_result['final_levels']['vocabulary_level'])>target_level:
-                        adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down", model=model)
+                        adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
                     if int(after_result['final_levels']['clause_level'])>target_level:
-                        adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down", model=model)
+                        adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
             else:
                 after_result = piece_result
                 if change_vocabulary<0:
-                    adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down",model=model)
+                    adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
                 if change_clause<0 and int(after_result['final_levels']['clause_level'])>target_level:
-                    adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down", model=model)
+                    adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
             adaptations.append(adaptation.strip('\n'))
 
         if by=='paragraph':
@@ -190,7 +200,7 @@ class AdoLevelAdaptor(object):
 
 
         if auto_retry>0 and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
-            return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=auto_retry-1, model=model)
+            return self.start_adapt_cefr(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=auto_retry-1)
 
         self.result = {
             'adaptation':after_text,
@@ -270,249 +280,267 @@ class AdoLevelAdaptor(object):
                 tagged_text += sent
         return tagged_text
 
-    def get_best_candidate(self, candidates, target_level, target_adjustment=0.5, on='general_level'):
-        min_difference = 100
+    def get_best_candidate(self, candidates, target_level, target_adjustment=0.5, tolerance=50, on='general_level',model='cefr'):
+        min_difference = 10000
         finalist_result = None
-        for candidate in candidates:
-            result = self.analyser.analyze_cefr(candidate,return_sentences=True, return_wordlists=True, return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
-            if int(result['final_levels']['vocabulary_level'])==target_level and int(result['final_levels']['vocabulary_level']+0.2)==target_level and int(result['final_levels']['clause_level'])==target_level and int(result['final_levels']['clause_level']+0.2)==target_level:
-                finalist = candidate
-                finalist_result = result
-                break
-            else:
-                if on=='general_level':
-                    diff = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))+abs(result['final_levels']['clause_level']-(target_level+target_adjustment))
-                elif on!='vocabulary_level':
-                    diff = abs(int(result['final_levels']['vocabulary_level'])-target_level)*10+abs(result['final_levels']['clause_level']-(target_level+target_adjustment))
-                else:
-                    diff = abs(int(result['final_levels']['clause_level'])-target_level)+abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
-                if diff<min_difference:
+        if model=='catile':
+            for candidate in candidates:
+                result = self.analyser.analyze_catile(candidate,return_result=True)
+                if int(round(result['scores']['catile']/10)*10)==target_level:
                     finalist = candidate
                     finalist_result = result
-                    min_difference = diff
+                    break
+                else:
+                    diff = abs(result['scores']['catile']-target_level)
+                    if diff<min_difference:
+                        finalist = candidate
+                        finalist_result = result
+                        min_difference = diff
+        else:
+            for candidate in candidates:
+                result = self.analyser.analyze_cefr(candidate,return_sentences=True, return_wordlists=True, return_vocabulary_stats=False,
+                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
+                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+                if int(result['final_levels']['vocabulary_level'])==target_level and int(result['final_levels']['vocabulary_level']+0.2)==target_level and int(result['final_levels']['clause_level'])==target_level and int(result['final_levels']['clause_level']+0.2)==target_level:
+                    finalist = candidate
+                    finalist_result = result
+                    break
+                else:
+                    if on=='general_level':
+                        diff = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))+abs(result['final_levels']['clause_level']-(target_level+target_adjustment))
+                    elif on!='vocabulary_level':
+                        diff = abs(int(result['final_levels']['vocabulary_level'])-target_level)*10+abs(result['final_levels']['clause_level']-(target_level+target_adjustment))
+                    else:
+                        diff = abs(int(result['final_levels']['clause_level'])-target_level)+abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
+                    if diff<min_difference:
+                        finalist = candidate
+                        finalist_result = result
+                        min_difference = diff
         return finalist, finalist_result
 
-    def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change='vocabulary', direction="down",model="gpt-3.5-turbo"):
+    def get_adaptation(self, text, target_level, target_adjustment=0.5, tolerance=50, n=1, change='vocabulary', direction="down", model='cefr'):
         n = min(n,10)
-        model_name = 'gpt-4-1106-preview'
-        n_per_call = min(max(1,int(4000/len(text.split(' '))-1)),n)
-        n_self_try = 3
+        model_name = 'gpt-4-0125-preview'
+        n_per_call = min(max(1,int(3000/len(text.split(' '))-1)),n)
+        n_self_try = 4
         candidates = []
 
-        prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change=change, direction=direction)
-        while n_self_try>0 and len(candidates)<n:
-            try:
-                openai_t0 = time.time()
-                completion = openai.ChatCompletion.create(
-                    model=model_name, n=max(n_per_call,n-len(candidates)),
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                self.openai_time += time.time()-openai_t0
+        if model=='catile':
+            if self.example_texts is None:
+                catile_examples = df_catile_examples.copy()
+                catile_examples['diff'] = abs(catile_examples['catile']-target_level)
+                self.example_texts = catile_examples.sort_values('diff').head(50)['content'].tolist()
 
-                for x in completion['choices']:
-                    x = x['message']['content'].strip()
-                    x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
-                    candidates.append(x)
-            except Exception as e:
+            while n_self_try>0 and len(candidates)<n:
                 n_self_try -= 1
-                if n_self_try==0:
-                    self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
-                    return
-                print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+                prompt = self.construct_prompt(text=text, target_level=target_level, example_text=self.example_texts.pop(0), direction=direction, model=model)
+                try:
+                    openai_t0 = time.time()
+                    if n_self_try==0:
+                        completion = openai.ChatCompletion.create(
+                            model='gpt-4-1106-preview', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                    else:
+                        completion = openai.ChatCompletion.create(
+                            model=model_name, n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                    self.openai_time += time.time()-openai_t0
+                    for x in completion['choices']:
+                        x = x['message']['content'].strip()
+                        candidates.append(x)
+                except Exception as e:
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return
+                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
+            finalist, finalist_result = self.get_best_candidate(candidates, target_level, tolerance=tolerance, model=model)
 
-        if direction=="down":
-            if change!='vocabulary':
-                on = 'clause_level'
-            else:
-                on = 'vocabulary_level'
         else:
-            on = 'general_level'
-        finalist, finalist_result = self.get_best_candidate(candidates, target_level, target_adjustment=target_adjustment,on=on)
+            prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change=change, direction=direction, model=model)
+            while n_self_try>0 and len(candidates)<n:
+                try:
+                    openai_t0 = time.time()
+                    if n_self_try==0:
+                        completion = openai.ChatCompletion.create(
+                            model='gpt-4-1106-preview', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                    else:
+                        completion = openai.ChatCompletion.create(
+                            model=model_name, n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}]
+                        )
+                    self.openai_time += time.time()-openai_t0
+                    for x in completion['choices']:
+                        x = x['message']['content'].strip()
+                        x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
+                        candidates.append(x)
+
+                except Exception as e:
+                    n_self_try -= 1
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return
+                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+
+            if direction=="down":
+                if change!='vocabulary':
+                    on = 'clause_level'
+                else:
+                    on = 'vocabulary_level'
+            else:
+                on = 'general_level'
+            finalist, finalist_result = self.get_best_candidate(candidates, target_level, target_adjustment=target_adjustment,on=on,model=model)
+        
         return finalist, finalist_result
 
     
-    def construct_prompt(self, text, target_level, target_adjustment=0.5, change='vocabulary',direction='down'):
-        int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-        level = int2cefr[target_level]
-        prompt = f'''You are an English textbook editor. Your task is to modify a text to fit CEFR {level} level.
-        
+    def construct_prompt(self, text, target_level, target_adjustment=0.5, change='vocabulary', example_text='', direction='down', model='cefr'):
+        if model=='catile':
+            if target_level>1360:
+                grade_prompt='university level'
+            elif target_level<0:
+                grade_prompt='pre-school level'
+            else:
+                grade2catile = np.array([-160,165,425,645,850,950,1030,1095,1155,1205,1250,1295,1295])
+                grade = np.abs(grade2catile-target_level).argmin()
+                grade_prompt = f'{grade+5}-year-old'
+
+            prompt = "You are a professional writer for English graded readers. "
+            if direction=='down':
+                prompt += f"You will be given a text that is too difficult for Lexile {target_level}L readers who are {grade_prompt} kids. "
+            else:
+                prompt += f"You will be given a text that is too easy for Lexile {target_level}L readers who are {grade_prompt} kids. "
+            prompt += f'''You will also be given an excerpt from an example text which is typically for {grade_prompt} kids. '''
+            if target_level<500:
+                prompt += f'''Your task is to use the repetitive sentence pattern in the example text to write about the ideas in the original text. '''
+            else:
+                prompt += f'''Your task is to take the main ideas of the original text and use them to write a new text at Lexile {target_level}L. '''
+                
+            prompt += f'''The difficulty of the vocabulary and sentence patterns in the new text should be similar to that in the example text.
+Do not add titles or subtitles if there aren't any in the original text.
+            
 Original text:
 ```
 {text}
 ```
-'''
-        if direction == 'down':
-            if change!='vocabulary':
-                max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = max(1,int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0)))
-                prompt += f'''\nIn this text, sentences within <i> tags are difficult for CEFR {level}.
-Change the structure of these tagged sentences following these rules:
-1. Use no more than {max_length} words for each sentence.
-2. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-Examples of breaking long clauses:
-"Studying galaxies helps us understand more about how the universe has changed over time." => "The universe has changed over time. Studying galaxies helps us understand more about this."
 
-Do not change any other sentences not tagged.
-Do not to replace any words in the original text.
-'''
-            else:
-                levels = [int2cefr[i] for i in range(target_level+1)]
-                levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-                prompt+=f'''\nIn this text, words within <b> tags are difficult for CEFR {level}. If these words are not necessary topic words, replace them with words at CEFR {levels} levels. Don't change any other words not tagged.
-
-Examples of replacing difficult words:
-    transport => move
-    shrink => get smaller
-    pregnancy => having a baby
-    have serious consequences => bad things will happen
-    anaesthesia => using drugs to make people feel no pain
-                
-Keep the details. Do not just summerize.
-Do not change the original sentences' structure.
-'''
-
-        else:
-            max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-            min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
-            prompt += f'''\nThis text is too easy for CEFR {level} level. Rewrite it so that it satisfies these requirements:
-1. There are many words at CEFR {level} level, but no words above CEFR {level} level.
-2. Each sentence should have approximately {min_length} to {max_length} words.
-
-'''
-        prompt += '''
-Do not remove titles and subtitles if there are any.
+Excerpt of an example text:
+```
+{example_text}
+```
 
 Output only the new text without any comments or tags.'''
-        return prompt
+            return prompt
+        else:
+            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            level = int2cefr[target_level]
+            prompt = f'''You are an English textbook editor. Your task is to modify a text to fit CEFR {level} level.
+            
+    Original text:
+    ```
+    {text}
+    ```
+    '''
+            if direction == 'down':
+                if change!='vocabulary':
+                    max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
+                    min_length = max(1,int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0)))
+                    prompt += f'''\nIn this text, sentences within <i> tags are difficult for CEFR {level}.
+    Change the structure of these tagged sentences following these rules:
+    1. Use no more than {max_length} words for each sentence.
+    2. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
+    Examples of breaking long clauses:
+    "Studying galaxies helps us understand more about how the universe has changed over time." => "The universe has changed over time. Studying galaxies helps us understand more about this."
+
+    Do not change any other sentences not tagged.
+    Do not to replace any words in the original text.
+    '''
+                else:
+                    levels = [int2cefr[i] for i in range(target_level+1)]
+                    levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
+                    prompt+=f'''\nIn this text, words within <b> tags are difficult for CEFR {level}. If these words are not necessary topic words, replace them with words at CEFR {levels} levels. Don't change any other words not tagged.
+
+    Examples of replacing difficult words:
+        transport => move
+        shrink => get smaller
+        pregnancy => having a baby
+        have serious consequences => bad things will happen
+        anaesthesia => using drugs to make people feel no pain
+                    
+    Keep the details. Do not just summerize.
+    Do not change the original sentences' structure.
+    '''
+
+            else:
+                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
+                min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
+                prompt += f'''\nThis text is too easy for CEFR {level} level. Rewrite it so that it satisfies these requirements:
+    1. There are many words at CEFR {level} level, but no words above CEFR {level} level.
+    2. Each sentence should have approximately {min_length} to {max_length} words.
+
+    '''
+            prompt += '''
+    Do not remove titles and subtitles if there are any.
+
+    Output only the new text without any comments or tags.'''
+            return prompt
 
 
+    def start_adapt_catile(self, text, target_level, tolerance=50, n=1, auto_retry=False, previous_best=None):
+        if self.before_result is None:
+            before_result = self.analyser.analyze_catile(text,return_result=True)
+        else:
+            before_result = self.before_result
+        before_level = int(round(before_result['scores']['catile']/10)*10)
+        after_result = None
+        adaptations = []
 
-#     def construct_prompt(self, text, target_level, target_adjustment=0.5, change_vocabulary=-1, change_clause=-1):
-#         prompt = ''
-#         int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-#         level = int2cefr[target_level]
-#         max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
+        pieces = []
+        pieces = self.divide_piece(text, min_piece_length=2000, by='piece')
+        n_pieces = len(pieces)
+        for k,piece in enumerate(pieces):
+            if len(piece.strip())==0:
+                adaptations.append(piece)
+                continue
+
+            if n_pieces>1:
+                piece_result = self.analyser.analyze_catile(piece,return_result=True)
+                piece_level = int(round(piece_result['scores']['catile']/10)*10)
+            else:
+                piece_level = before_level
+                piece_result = before_result
+
+            if abs(piece_level-target_level)<=tolerance:
+                adaptations.append(piece)
+                continue
+
+            adaptation = piece
+            if piece_level<target_level:
+                adaptation, after_result = self.get_adaptation(adaptation, target_level, tolerance=tolerance, n=n, direction="up",model='catile')
+            else:
+                adaptation, after_result = self.get_adaptation(adaptation, target_level, tolerance=tolerance, n=n, direction="down",model='catile')
+            adaptations.append(adaptation.strip('\n'))
+
+        after_text = ' '.join(adaptations)
         
-#         if False:#change_vocabulary<0:
-#             prompt = f'''
-# You are an English textbook editor. Your task is to write texts at CEFR {level} level.
+        if len(adaptations)>1:
+            after_result = self.analyser.analyze_catile(after_text,return_result=True)
+        if after_result is None:
+            after_level = before_level
+        else:
+            after_level = after_result['scores']['catile']
 
-# Follow these steps when writing:
-# 1. Use summarize all the ideas of a text as bullet points
-# 2. To recreate the text at CEFR {level} level, use one or more simple sentences to rewrite each point.
+        if previous_best is None or abs(after_level-target_level)<abs(previous_best['after']-target_level):
+            previous_best = {'adaptation':after_text,'before':before_level,'after': after_level}
 
-# A text at CEFR {level} level should meet the following requirements:
-# 1. The vocabulary should be simple and below CEFR {level} level. Don't use technical or academic words. Paraphrase technical or academic words. For example:
-#     transport => move
-#     shrink => get smaller
-#     pregnancy => having a baby
-#     have serious consequences => bad things will happen
-#     anaesthesia => using drugs to make people feel no pain
-# 2. Each sentence is not longer than {max_length} words.
-# 3. There should be no complex grammartical clauses (like noun clauses, relative clauses, etc.). If there is any, break it down into several short sentences.  For example:
-# ```"Studying galaxies helps us understand more about how the universe has changed over time." => "The universe has changed over time. Studying galaxies helps us understand more about this."```
+        if auto_retry>0 and abs(int(round(previous_best['after']/10)*10)-target_level)>tolerance:
+            return self.start_adapt_catile(text, target_level, tolerance=min(tolerance+10,100), n=n, auto_retry=auto_retry-1, previous_best=previous_best)
 
-
-    
-# Original text:
-# ```
-# {text}
-# ```
-# '''
-#             prompt += '''
-# Return both the bullet points and the new text in a Python dictionary like this:
-# ```{'bullet_points':[point 1, point 2, ...], 'text': the new text}```.
-#     '''
-#         else:
-#             levels = [int2cefr[i] for i in range(target_level+1)]
-#             levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-
-#             examples = '''\nExamples of replacing difficult words and long clauses:
-# transport => move
-# shrink => get smaller
-# pregnancy => having a baby
-# have serious consequences => bad things will happen
-# anaesthesia => using drugs to make people feel no pain
-# Studying galaxies helps us understand more about how the universe has changed over time. => The universe has changed over time. Studying galaxies helps us understand more about this.'''
-
-#             if change_clause<0:
-#                 max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-#                 min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
-#                 if change_vocabulary<0:
-#                     prompt = f'''Your task is to rewrite this passage so that a child can easily understand.
-# For each sentence, follow these rules:
-# 1. Keep the details. Do not just summerize.
-# 2. Replace difficult words and use mainly words at CEFR {levels} levels.
-# 3. Use no more than {max_length} words.
-# 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-# 5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# ''' + examples
-#                 elif change_vocabulary>0:
-#                     prompt = f'''Your task is to replace easy words in this passage so that most of the words are at CEFR {int2cefr[target_level]} level.
-# For each sentence, follow these rules:
-# 1. Keep the details. Do not just summerize.
-# 2. Use mainly words at CEFR {int2cefr[target_level]} level.
-# 3. Use no more than {max_length} words.
-# 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-# 5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''
-#                 else:
-#                     prompt = f'''Your task is to rewrite this passage so that the sentence structure is simplier.
-# For each sentence, follow these rules:
-# 1. Keep the details. Do not just summerize.
-# 2. Use only the vocabulary in the original passage.
-# 3. Use no more than {max_length} words.
-# 4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-# 5. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''
-#             elif change_clause>0:
-#                 max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-#                 min_length = int(round(np.log(target_level-0.5+target_adjustment+1.5)/np.log(1.1),0))
-#                 if change_vocabulary<0:
-#                     prompt = f'''Your task is to rewrite this passage to make the sentence structure more complex.
-# For each sentence, follow these rules:
-# 1. Do not make the vocabulary more complex.
-# 2. Replace difficult words and use only words at CEFR {levels[:4]} levels so that a child can easily understand.
-# 3. Use {min_length} to {max_length} words.
-# 4. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# ''' + examples
-#                 elif change_vocabulary>0:
-#                     prompt = f'''Your task is to rewrite this passage to make it more complex.
-# For each sentence, follow these rules:
-# 1. Use mainly words at CEFR {int2cefr[target_level]} level.
-# 2. Use {min_length} to {max_length} words.
-# 3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''
-#                 else:
-#                     prompt = f'''Your task is to rewrite this passage to make the sentence structure more complex.
-# For each sentence, follow these rules:
-# 1. Do not make the vocabulary more complex.
-# 2. Use only the vocabulary in the original passage.
-# 3. Use {min_length} to {max_length} words.
-# 4. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''
-#             else:
-#                 if change_vocabulary<0:
-#                     prompt = f'''Your task is to replace difficult words with easier ones in this passage.
-# For each sentence, follow these rules:
-# 1. Try not to change the sentence structure.
-# 2. Replace difficult words and use only words at CEFR {levels} levels so that a child can easily understand.
-# 3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''+examples
-#                 elif change_vocabulary>0:
-#                     prompt = f'''Your task is to replace easier words with more difficult ones in this passage.
-# For each sentence, follow these rules:
-# 1. Try not to change the sentence structure.
-# 2. Use only words at CEFR {int2cefr[target_level]} level.
-# 3. Don't add notes not related to the content, like "(number of words)", "[the number of sentence]".
-# '''
-#                 else:
-#                     return ''
-#             prompt = prompt+f"\nPassage:\n```{text}```"
-#         return prompt
+        self.result = previous_best
 
 
 def float2cefr(num):
