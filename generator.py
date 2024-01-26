@@ -412,7 +412,7 @@ class AdoTextGenerator(object):
         else:
             openai.api_key = self.openai_api_key
 
-        level = check_level_input_and_int(level)
+        level = clean_target_level_input(level)
 
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
 
@@ -694,7 +694,7 @@ Writing:
             language_prompt = ''
             
         if level:
-            level = check_level_input_and_int(level)
+            level = clean_target_level_input(level)
             
             if level in level_int2str:
                 target_level = level_int2str[level]
