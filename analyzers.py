@@ -154,8 +154,8 @@ class AdoTextAnalyzer(object):
                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,
                     return_result=True,clear_simplifier=True,return_modified_final_levels=False):
 
-        if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+        # if detect(text.replace('\n',' '))['lang'] != 'en':
+        #     raise InformError("Language not supported. Please use English.")
 
         text = self.clean_text(text)
         if text!=self.text or custom_dictionary!={}:
@@ -213,8 +213,8 @@ class AdoTextAnalyzer(object):
 
     def analyze_catile(self,text,return_result=True):
 
-        if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+        # if detect(text.replace('\n',' '))['lang'] != 'en':
+        #     raise InformError("Language not supported. Please use English.")
             
         text = self.clean_text(text)
         if text!=self.text:

@@ -28,8 +28,8 @@ class AdoLevelAdaptor(object):
         else:
             openai.api_key = self.openai_api_key
 
-        if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+        # if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
+        #     raise InformError("Language not supported. Please use English.")
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
         by = 'piece'
 
