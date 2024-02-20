@@ -412,7 +412,7 @@ class AdoTextGenerator(object):
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         level = clean_target_level_input(level)
 
@@ -568,13 +568,14 @@ class AdoWritingAssessor(object):
     def __init__(self, text_analyser, openai_api_key=None):
         self.openai_api_key = openai_api_key
         self.analyser = text_analyser
+        self.client = None
 
     def revise(self,text, comment=False, writing_language='English', comment_language=None, auto_retry=2, original_analysis=None, override_messages=None):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         if comment==True:
             json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
@@ -679,7 +680,7 @@ Writing:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         if comment==True:
             json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
