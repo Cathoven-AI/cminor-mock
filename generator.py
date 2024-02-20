@@ -1,5 +1,6 @@
 import numpy as np
-import openai, json, ast, warnings, os, sys, re, difflib
+import json, ast, warnings, os, sys, re, difflib, httpx
+from openai import OpenAI
 from nltk.tokenize import sent_tokenize
 from .utils import InformError, clean_target_level_input
 
@@ -40,6 +41,7 @@ level_int2str = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
 class AdoQuestionGenerator(object):
     def __init__(self, text_analyser=None, openai_api_key=None):
         self.openai_api_key = openai_api_key
+        self.client = None
         self.analyser = text_analyser
         
     def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
@@ -50,7 +52,7 @@ class AdoQuestionGenerator(object):
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
 
         if level is None:
             if self.analyser is not None:
@@ -307,7 +309,7 @@ class AdoQuestionGenerator(object):
         n_self_try = 3
         while n_self_try>0:
             try:
-                completion = openai.ChatCompletion.create(
+                completion = self.client.chat.completions.create(
                     model='gpt-4-1106-preview',#"gpt-3.5-turbo",
                     messages=messages_to_send
                 )
@@ -507,7 +509,7 @@ In the meantime, the text should meet the following requirements:
         #     model = "gpt-4"
         for i in range(3):
             try:
-                completion = openai.ChatCompletion.create(
+                completion = self.client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     n=1
@@ -621,7 +623,7 @@ Writing:
         else:
             messages_to_send = override_messages
 
-        completion = openai.ChatCompletion.create(
+        completion = self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages_to_send
         )
@@ -731,7 +733,7 @@ Writing:
         else:
             messages_to_send = override_messages
 
-        completion = openai.ChatCompletion.create(
+        completion = self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages_to_send
         )
