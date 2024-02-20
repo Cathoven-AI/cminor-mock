@@ -13,8 +13,8 @@ class SolarSpacy(Language):
 	def __init__(self, spacy_pipeline):
 		self.nlp_no_sbd = spacy.load(spacy_pipeline)
 		self.nlp_no_sbd.tokenizer = SolarSpacy.custom_tokenizer(self.nlp_no_sbd)
-		#self.nlp_no_sbd.add_pipe('set_custom_boundaries', before='parser')
-		self.nlp_no_sbd.add_pipe('prevent_sbd', before='parser')
+		self.nlp_no_sbd.add_pipe('set_custom_boundaries', before='parser')
+		#self.nlp_no_sbd.add_pipe('prevent_sbd', before='parser')
 
 		# initialize all other spacy.language components
 		self.vocab = self.nlp_no_sbd.vocab
@@ -33,27 +33,14 @@ class SolarSpacy(Language):
 	def explain(self,tag):
 		return spacy.explain(tag)
 
-	# @spacy.Language.component('set_custom_boundaries')
-	# def set_custom_boundaries(doc):
-	#	 for token in doc:
-	#		 if token.i<len(doc)-1 and ("\n" in token.orth_ or token.orth_ in ["?","!","."] and ((bool(token.whitespace_)==True) or doc[token.i+1].orth_ in ['[','(','{'])):
-	#			 doc[token.i+1].is_sent_start = True
-	#			 if token.i<len(doc)-2:
-	#				 doc[token.i+2].is_sent_start = False
-	#	 return doc
-
-
-	# @spacy.Language.component('sent_start_check')
-	# def sent_start_check(doc):
-	# 	for token in doc:
-	#		 if token.is_sent_start and token.orth_ in [",","!","."]:
-		
-	#	 for token in doc:
-	#		 if token.i<len(doc)-1 and ("\n" in token.orth_ or token.orth_ in ["?","!","."] and ((bool(token.whitespace_)==True) or doc[token.i+1].orth_ in ['[','(','{'])):
-	#			 doc[token.i+1].is_sent_start = True
-	#			 if token.i<len(doc)-2:
-	#				 doc[token.i+2].is_sent_start = False
-	#	 return doc
+	@Language.component('set_custom_boundaries')
+	def set_custom_boundaries(doc):
+		for token in doc:
+			if token.i<len(doc)-1 and "\n" in token.orth_: #or token.orth_ in ["?","!","."] and ((bool(token.whitespace_)==True))):
+				doc[token.i+1].is_sent_start = True
+				if token.i<len(doc)-2:
+					doc[token.i+2].is_sent_start = False
+		return doc
 
 	@Language.component('prevent_sbd')
 	def prevent_sbd(doc):
@@ -117,8 +104,8 @@ class SolarSpacy(Language):
 		inf = list(nlp.Defaults.infixes)			   # Default infixes
 		inf.remove(r"(?<=[0-9])[+\-\*^](?=[0-9-])")	# Remove the generic op between numbers or between a number and a -
 		inf = tuple(inf)
-		inf = [x for x in inf if '-|–|—|--|---|——|~' not in x]
-		infixes = inf + [r"(?<=[0-9])[+*^](?=[0-9-])", r"(?<=[0-9])-(?=-)", '''[?!&:,()”;"—\[\]]''']  # Add the removed rule after subtracting (?<=[0-9])-(?=[0-9]) pattern
+		inf = inf + tuple([r"(?<=[0-9])[+*^](?=[0-9-])", r"(?<=[0-9])-(?=-)", '''[?!&:,()”;"—\[\]]'''])  # Add the removed rule after subtracting (?<=[0-9])-(?=[0-9]) pattern
+		infixes = [x for x in inf if '-|–|—|--|---|——|~' not in x]
 
 		prefixes = list(nlp.Defaults.prefixes) + spacy.lang.char_classes.LIST_HYPHENS
 		#suffixes = list(nlp.Defaults.suffixes) + spacy.lang.char_classes.LIST_HYPHENS
