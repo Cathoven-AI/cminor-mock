@@ -320,13 +320,13 @@ class AdoQuestionGenerator(object):
                     return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                 print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
-        response = completion['choices'][0]['message']['content'].strip(' `')
+        response = completion.choices[0].message.content.strip(' `')
         questions = parse_response(response)
 
         if questions is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                                               {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
                 else:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
@@ -514,7 +514,7 @@ In the meantime, the text should meet the following requirements:
                     messages=[{"role": "user", "content": prompt}],
                     n=1
                 )
-                text = parse_response(completion['choices'][0]['message']['content'])['text']
+                text = parse_response(completion.choices[0].message.content)['text']
                 break
             except:
                 continue
@@ -628,16 +628,16 @@ Writing:
             messages=messages_to_send
         )
 
-        result = parse_response(completion['choices'][0]['message']['content'])
+        result = parse_response(completion.choices[0].message.content)
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
         
         revised_text = text+''
         result2 = []
@@ -738,16 +738,16 @@ Writing:
             messages=messages_to_send
         )
 
-        result = parse_response(completion['choices'][0]['message']['content'])
+        result = parse_response(completion.choices[0].message.content)
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
         
         revised_text = text+''
         result2 = []
