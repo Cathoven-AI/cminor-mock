@@ -30,7 +30,7 @@ BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 # Lexile files
 neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)
 neural_model2 = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20240208'),compile=False)
-sentence_level_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr/sentence_level_model.keras'),compile=False)
+sentence_level_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr/sentence_level_model'),compile=False)
 sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 with open(os.path.join(BASE_DIR, 'files/model_files/lexile_linear.pkl'), 'rb') as file:
