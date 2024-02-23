@@ -421,7 +421,8 @@ class AdoTextGenerator(object):
                     custom_dictionary[x] = -1
                 else:
                     custom_dictionary[tuple(x)] = -1
-            settings['custom_dictionary'] = custom_dictionary.uupdate(settings.get('custom_dictionary',{}))
+            custom_dictionary.update(settings.get('custom_dictionary',{}))
+            settings['custom_dictionary'] = custom_dictionary
         if grammar:
             model = 'gpt-4'
         else:
