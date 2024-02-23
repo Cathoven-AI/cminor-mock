@@ -273,10 +273,10 @@ class AdoLevelAdaptor(object):
         tagged_text = ''
         for s in sentences.values():
             for i in range(len(s['lemma'])):
-                if s['CEFR'][i]>threshold:
+                if s['CEFR_vocabulary'][i]>threshold:
                     tagged_text += "<b>"+s["word"][i]+"</b>"+' '*s["whitespace"][i]
                     not_tagged = False
-                elif s['CEFR'][i]==threshold and (not_tagged or np.random.rand()<p):
+                elif s['CEFR_vocabulary'][i]==threshold and (not_tagged or np.random.rand()<p):
                     tagged_text += "<b>"+s["word"][i]+"</b>"+' '*s["whitespace"][i]
                     not_tagged = False
                 else:
@@ -292,10 +292,10 @@ class AdoLevelAdaptor(object):
             sent = ''
             for i in range(len(s['lemma'])):
                 sent += s["word"][i]+' '*s["whitespace"][i]
-            if int(s['CEFR_clause'])>target_level+1 or length>max_length:
+            if int(max(s['CEFR_clause']))>target_level+1 or length>max_length:
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
-            elif (int(s['CEFR_clause'])==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
+            elif (int(max(s['CEFR_clause']))==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
             else:
