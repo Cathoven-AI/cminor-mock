@@ -226,7 +226,7 @@ class AdoTextAnalyzer(object):
                 self.text = text
                 
                 if 'all' in outputs:
-                    self.cefr2.outputs = {'sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'},
+                    self.cefr2.outputs = {'sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'}
                 else:
                     self.cefr2.outputs = set(outputs)
                 self.cefr2.settings = settings
@@ -2298,6 +2298,8 @@ class AdoTextAnalyzer(object):
                     clause = 'ncl'
                 subtree = sorted(set(subtree))
                 level = self.clause2level(clause_form,clause,subtree,first,leftest_child)
+            if level is None:
+                subtree = None
             return clause_form, clause, subtree, level
 
         def clause2level(self,clause_form,clause,subtree,first,leftest_child):
@@ -2453,6 +2455,15 @@ class AdoTextAnalyzer(object):
             grades = self.score2grades(score)
             ielts = self.float2ielts(num)
             return {'cambridge_scale_score':score,'exam_grades':grades,'ielts':ielts}
+
+        
+        def sentence_length_level(self, length):
+            a,b = [0.20722492, 3.30842234]
+            return 6/(1+np.exp(-length*a+b))
+        
+        def cefr2length(self, level):
+            a,b = [0.20722492, 3.30842234]
+            return round(max(1,(b-np.log(6/level-1))/a)) if level else 1
 
         def process_input(self,reference_word,reference_pos,reference_CEFR,word,pos,max_length=38):
             letter2id = {x:i+7 for i,x in enumerate(list('abcdefghijklmnopqrstuvwxyz'))}
@@ -2657,9 +2668,21 @@ class AdoTextAnalyzer(object):
                         text_tagged += s['word'][i] + ' '*s['whitespace'][i]
             return text_tagged
 
+
+        def print_time(self, message):
+            #print(message, time.time()-self.t0)
+            self.t0 = time.time()
+
         def process(self):
             dfs = {}
             rows = []
+
+            verb_form_time = 0
+            clause_time = 0
+            vocabulary_time = 0
+            phrase_time = 0
+            typing_time = 0
+            self.t0 = time.time()
             for sent in self.shared_object.doc.sents:
                 n_sent = len(dfs)
                 for count_token, x in enumerate(sent):
@@ -2722,7 +2745,9 @@ class AdoTextAnalyzer(object):
                             tense1 = None
                             tense2 = None
                             tense_term = None
-
+                            
+                            
+                            self.t0 = time.time()
                             # Verb forms
                             try:
                                 if x.pos_ in set(['VERB','AUX']):
@@ -2734,9 +2759,15 @@ class AdoTextAnalyzer(object):
                                 if tense1 is not None and tense2 is not None:
                                     tense_level, form = self.tense2level(form,tense1,tense2,x)
                                     tense_term = self.convert_tense_name(form,tense1,tense2)
+                            verb_form_time += time.time()-self.t0
                                     
+                            self.t0 = time.time()
                             # Clauses
                             clause_form, clause, clause_span, clause_level = self.get_clause(x)
+                            clause_time += time.time()-self.t0
+
+                            self.t0 = time.time()
+                            # Vocabulary
                             if x.orth_.lower() in most_freq_50:
                                 word_lemma = tuple([x.lemma_,'STOP'])
                                 word_orth = tuple([x.orth_.lower(),'STOP'])
@@ -2744,7 +2775,6 @@ class AdoTextAnalyzer(object):
                                 word_lemma = tuple([x.lemma_,x.pos_])
                                 word_orth = tuple([x.orth_.lower(),x.pos_])
 
-                            # Vocabulary
                             if self.settings['keep_min']:
                                 cefr_w_pos_prim = cefr_w_pos_min_prim
                                 cefr_wo_pos_prim = cefr_wo_pos_min_prim
@@ -2776,14 +2806,16 @@ class AdoTextAnalyzer(object):
                                         level = 0
                                     else:
                                         level = max(2,self.predict_cefr(x.lemma_,x.pos_))
+                        vocabulary_time += time.time()-self.t0
 
+                        self.t0 = time.time()
                         # Phrases
                         phrase = None
                         phrase_span = None
                         max_confidence = 0
                         ambiguous = True
                         is_idiom = True
-
+                        
                         if 'phrase_count' in self.outputs:
                             phrases_words = set(df_phrases['word'].values)
                             if x.pos_ not in set(["DET","PART"]) and x.lemma_.lower() in phrases_words:
@@ -2818,7 +2850,8 @@ class AdoTextAnalyzer(object):
                                         max_confidence = confidence_temp*1
                                         ambiguous = row['ambiguous'] or prt_ambiguous
                                         is_idiom = row['is_idiom']
-                                    
+                        phrase_time += time.time()-self.t0
+
                         if skip:
                             rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                         'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
@@ -2830,6 +2863,7 @@ class AdoTextAnalyzer(object):
                                         'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
                                         'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
 
+                self.t0 = time.time()
                 df_lemma = pd.DataFrame(rows)
 
                 if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
@@ -2855,11 +2889,19 @@ class AdoTextAnalyzer(object):
                     df_lemma['phrase_confidence'] = df_lemma['phrase_confidence'].astype(float)
                     df_lemma['phrase_ambiguous'] = df_lemma['phrase_ambiguous'].astype(bool)
                     df_lemma['phrase_is_idiom'] = df_lemma['phrase_is_idiom'].astype(bool)
-                    #weights = self.get_word_weights(df_lemma.to_dict(orient='list'))
-                    #df_lemma['weight'] = weights
                     dfs[n_sent] = df_lemma
                     rows = []
+                typing_time += time.time()-self.t0
+            
 
+            # print('verb_form_time',verb_form_time)
+            # print('clause_time',clause_time)
+            # print('vocabulary_time',vocabulary_time)
+            # print('phrase_time',phrase_time)
+            # print('typing_time',typing_time)
+            
+
+            self.t0 = time.time()
             if len(dfs)>0:
                 dfs = self.embed_all(dfs)
                 df_lemma = pd.concat(dfs.values())
@@ -2868,6 +2910,7 @@ class AdoTextAnalyzer(object):
                                     'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
                                     'clause_form','clause','CEFR_clause','clause_span',
                                     'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom'])
+            self.print_time('embed_all')
             self.df_lemma = df_lemma
 
             if len(self.outputs)==0:
@@ -2894,10 +2937,27 @@ class AdoTextAnalyzer(object):
                         temp = list(set(df_lemma_temp['lemma_pos']).intersection(words))
                         if len(temp)>0:
                             topic_vocabulary[topic][subtopic] = temp
+            self.print_time('Topic vocabulary')
 
             sentence_levels = []
+            sentence_lengths = []
+            clause_levels = []
+            
             for sentence_id, df in dfs.items():
-                sentence_levels += [self.CEFR_sentences[sentence_id]]*len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])
+                length = len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])
+                sentence_lengths.append(length)
+                sentence_levels += [self.CEFR_sentences[sentence_id]]*length
+
+                df_clause = df[df['CEFR_clause'].fillna(0)>0]
+                # if len(df_clause)>0:
+                #     level_by_clause = min(sum(df_clause['CEFR_clause']*np.minimum((df_clause['clause_span'].apply(lambda x: max(1,max(x)-min(x)))/length/0.5),1)),6)
+                # else:
+                #     level_by_clause = 0
+                # clause_level = max(np.mean([level_by_length,level_by_clause]),level_by_clause)
+                # clause_levels.append(clause_level)
+                levels_by_clause = sum((df_clause['CEFR_clause'].apply(lambda x:[x])*df_clause['clause_span'].apply(lambda x: max(1,max(x)-min(x)))).values,[])
+                levels_by_clause += [0]*max(0,(length-len(levels_by_clause)))
+                clause_levels += levels_by_clause
 
                 if 'phrase_count' in self.outputs:
                     df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom','sentence_id']].dropna()
@@ -2957,12 +3017,16 @@ class AdoTextAnalyzer(object):
                     else:
                         sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,'CEFR_sentence':self.CEFR_sentences[sentence_id]}
                 
+            self.print_time('sentences')
+
             if 'wordlists' in self.outputs or 'modified_final_levels' in self.outputs:
                 wordlists = {}
                 for CEFR,group in df_lemma[df_lemma['CEFR']>=-1].groupby('CEFR'):
                     df = group[['lemma','pos']]
                     wordlists[CEFR] = df.groupby(df.columns.tolist(),as_index=False).size().sort_values(['size','lemma','pos'],ascending=[False,True,True]).to_dict(orient='list')
                 
+            self.print_time('wordlists')
+
             if 'tense_count' in self.outputs or 'tense_stats' in self.outputs:
                 tense_count = {}
                 for tense,group in df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense1'])].groupby(['tense1','tense2']):
@@ -2980,29 +3044,12 @@ class AdoTextAnalyzer(object):
                         temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
                     tense_count['_'.join(tense)] = temp_dict
 
+            self.print_time('tense_count')
+
             if 'tense_term_count' in self.outputs or 'tense_stats' in self.outputs:
                 tense_term_count = {}
 
                 df_lemma_temp = df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense_term'])&~pd.isnull(df_lemma['tense1'])&~pd.isnull(df_lemma['tense2'])].copy().reset_index(drop=True)
-                
-                '''
-                infinitive_temp = {}
-                infinitive_ids = {}
-                for i, row in df_lemma_temp.iterrows():
-                    name = row['tense_term']
-                    if name.startswith('Infinitive') and 'with modal verb' in name:
-                        name_with_level = str(row['CEFR_tense'])+'_'+' '.join(name.split(' ')[:-1])
-                        if name_with_level in infinitive_temp:
-                            infinitive_temp[name_with_level].append(name.split(' ')[-1])
-                            infinitive_ids[name_with_level].append(i)
-                        else:
-                            infinitive_temp[name_with_level] = [name.split(' ')[-1]]
-                            infinitive_ids[name_with_level] = [i]
-                for name_with_level,modal_verbs in infinitive_temp.items():
-                    name = name_with_level.split('_')[-1] + ' {}'.format(', '.join(set(modal_verbs)))
-                    for i in infinitive_ids[name_with_level]:
-                        df_lemma_temp.at[i,'tense_term'] = name
-                '''
                 
                 for term,group in df_lemma_temp.groupby('tense_term'):
                     df = group[['form','tense1','tense2','tense_term','CEFR_tense','tense_span','sentence_id']]
@@ -3018,6 +3065,7 @@ class AdoTextAnalyzer(object):
                         temp_dict['span'][form_id[form]] = group['tense_span'].tolist()
                         temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
                     tense_term_count[term] = temp_dict
+            self.print_time('tense_term_count')
 
             sum_tense, cumsum_tense = self.count_tense(df_lemma)
             tense_stats = {'sum_token':{'values':list(sum_tense.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_tense.values,4))}}
@@ -3030,6 +3078,8 @@ class AdoTextAnalyzer(object):
                                     #'ninety_five':[self.ninety_five(cumsum_tense,5)],
                                     'ninety_five':[self.estimate_95(values,minimum=0,maximum=5,step=0.5)],
                                     'fit_error':[self.fit_error(cumsum_tense.values[1:],np.arange(0.5,5.5,0.5),a,b,c,d)]}
+
+            self.print_time('tense_stats')
 
             if 'clause_count' in self.outputs:
                 clause_count = {}
@@ -3045,7 +3095,7 @@ class AdoTextAnalyzer(object):
                         temp_dict['clause_span'][form_id[form[0]+'_'+str(form[1])]] = group['clause_span'].tolist()
                         temp_dict['sentence_id'][form_id[form[0]+'_'+str(form[1])]] = group['sentence_id'].astype(int).tolist()
                     clause_count[clause] = temp_dict
-            
+            self.print_time('clause_count')
             
             sum_clause, cumsum_clause = self.count_clause(df_lemma)
             clause_stats = {'sum_token':{'values':list(sum_clause.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_clause.values,4))}}
@@ -3058,6 +3108,7 @@ class AdoTextAnalyzer(object):
                                     #'ninety_five':[self.ninety_five(cumsum_clause,5)],
                                     'ninety_five':[self.estimate_95(values,minimum=0,maximum=5,step=1)],
                                     'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]}
+            self.print_time('clause_stats')
 
             if 'phrase_count' in self.outputs:
                 phrase_count = {}
@@ -3069,13 +3120,19 @@ class AdoTextAnalyzer(object):
                         temp_df = group.agg(len)['sentence_id']
                         temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':any(group['phrase_ambiguous'].tolist()),'phrase_is_idiom':group['phrase_is_idiom'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
                         phrase_count[phrase] = temp_dict
+            self.print_time('phrase_count')
 
             mean_clause = n_clausal and n_clauses/n_clausal or 0
-            # if len(clause_levels)>0:
-            #     clause_level = round(min(np.percentile(clause_levels,95),6),1)
-            # else:
-            #     clause_level = 0
-            mean_length = len(dfs) and n_words/len(dfs) or 0
+            if len(clause_levels)>0:
+                mean_length = round(np.mean(sentence_lengths),1)
+                length_level = self.sentence_length_level(mean_length)
+                clause_level = np.percentile(clause_levels,95)
+                if clause_level<length_level:
+                    clause_level = np.mean([clause_level,length_level])
+                clause_level = round(min(clause_level,6),1)
+            else:
+                clause_level = 0
+                mean_length = 0
             # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
             clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'n_words':n_words})
             
@@ -3085,7 +3142,9 @@ class AdoTextAnalyzer(object):
                         'cumsum_token':{'values':list(np.round(cumsum_series_token.values,4))},
                         'sum_type':{'values':list(sum_series_type.astype(int))},
                         'cumsum_type':{'values':list(np.round(cumsum_series_type.values,4))}}
-            
+            self.print_time('clause_stats2')
+
+
             for k in set(['cumsum_token','cumsum_type']):
                 a,b,c,d = self.fit_sigmoid((stats_dict[k]['values'][1:-1]),range(6))
                 stats_dict[k]['constants']=[a,b,c,d]
@@ -3094,16 +3153,18 @@ class AdoTextAnalyzer(object):
                                         #'ninety_five':[self.ninety_five(cumsum_series_token)],
                                         'ninety_five':[self.estimate_95(df_lemma[df_lemma['CEFR']>=-1]['CEFR'].values)],
                                         'fit_error':[self.fit_error(stats_dict[k]['values'][2:-1],range(1,6),a,b,c,d)]}
+                    
+            self.print_time('stats')
 
             if 'final_levels' in self.outputs or 'tense_stats' in self.outputs or 'modified_final_levels' in self.outputs:
                 if tense_stats["level"]["fit_error"][0]>=0.05:
                     tense_level = tense_stats["level"]["ninety_five"][0]
                 else:
                     tense_level = tense_stats["level"]["fit_curve"][0]
-                if clause_stats["level"]["fit_error"][0]>=0.1:
-                    clause_level = clause_stats["level"]["ninety_five"][0]
-                else:
-                    clause_level = clause_stats["level"]["fit_curve"][0]
+                # if clause_stats["level"]["fit_error"][0]>=0.1:
+                #     clause_level = clause_stats["level"]["ninety_five"][0]
+                # else:
+                #     clause_level = clause_stats["level"]["fit_curve"][0]
                 if stats_dict["level"]["fit_error"][0]>=0.1:
                     vocabulary_level = stats_dict["level"]["ninety_five"][0]
                 else:
@@ -3111,13 +3172,14 @@ class AdoTextAnalyzer(object):
 
                 sentence_level = np.percentile(sentence_levels,80)
                 
-                general_level = max([vocabulary_level,tense_level,clause_level,sentence_level])
+                general_level = (max([vocabulary_level,tense_level,clause_level])+sentence_level)/2
 
                 final_levels = {'general_level':max(0,min(round(general_level,1),6)),
                                 'vocabulary_level':max(0,min(round(vocabulary_level,1),6)),
                                 'tense_level':max(0,min(round(tense_level,1),6)),
                                 'clause_level':max(0,min(round(clause_level,1),6)),
-                                'sentence_level': round(sentence_level,1)}
+                                'sentence_level':max(0,min(round(sentence_level,1),6))}
+            self.print_time('final_levels')
 
             if 'modified_final_levels' in self.outputs:
                 df_lemma_temp2 = df_lemma.copy()
@@ -3141,8 +3203,7 @@ class AdoTextAnalyzer(object):
                                     df_lemma_temp2.iat[i,4] = -1
                             ignored_words.append(x['lemma']+"_"+x['pos'])
                             modified_vocabulary_level = self.estimate_95(df_lemma_temp2['CEFR'].values)
-                            modified_average_level = (modified_vocabulary_level+tense_level+clause_level)/3
-                            modified_general_level = max([modified_vocabulary_level,tense_level,modified_average_level,clause_level-0.5])
+                            modified_general_level = (max([modified_vocabulary_level,tense_level,clause_level])+sentence_level)/2
                             temp = {'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
                                                                                                         'vocabulary_level':min(round(modified_vocabulary_level,1),6),
                                                                                                         'tense_level':min(round(tense_level,1),6),
@@ -3153,6 +3214,7 @@ class AdoTextAnalyzer(object):
                             if modified_vocabulary_level<=min(buttom_level,int(buttom_level)+0.5):
                                 break
 
+            self.print_time('modified_final_levels')
 
             result_dict = {}
             if 'sentences' in self.outputs:
@@ -3203,6 +3265,7 @@ class AdoTextAnalyzer(object):
             if 'modified_final_levels' in self.outputs:
                 result_dict['modified_final_levels'] = modified_final_levels
                 #self.final_levels = final_levels
+            self.print_time('outputs')
             self.result = result_dict
 
         def sum_cumsum(self,df_lemma,mode='token'):
@@ -4460,6 +4523,28 @@ class AdoTextAnalyzer(object):
 
             if len(dfs)>0:
                 df_lemma = pd.concat(dfs.values())
+                df_lemma['id'] = df_lemma['id'].astype(int)
+                df_lemma['word'] = df_lemma['word'].astype(str)
+                df_lemma['lemma'] = df_lemma['lemma'].astype(str)
+                df_lemma['pos'] = df_lemma['pos'].astype(str)
+                df_lemma['CEFR'] = df_lemma['CEFR'].astype(float)
+                df_lemma['whitespace'] = df_lemma['whitespace'].astype(bool)
+                df_lemma['sentence_id'] = df_lemma['sentence_id'].astype(int)
+                df_lemma['form'] = df_lemma['form'].astype(object)
+                df_lemma['tense1'] = df_lemma['tense1'].astype(object)
+                df_lemma['tense2'] = df_lemma['tense2'].astype(object)
+                df_lemma['tense_term'] = df_lemma['tense_term'].astype(object)
+                df_lemma['CEFR_tense'] = df_lemma['CEFR_tense'].astype(float)
+                df_lemma['tense_span'] = df_lemma['tense_span'].astype(object)
+                df_lemma['clause_form'] = df_lemma['clause_form'].astype(object)
+                df_lemma['clause'] = df_lemma['clause'].astype(object)
+                df_lemma['CEFR_clause'] = df_lemma['CEFR_clause'].astype(float)
+                df_lemma['clause_span'] = df_lemma['clause_span'].astype(object)
+                df_lemma['phrase'] = df_lemma['phrase'].astype(str)
+                df_lemma['phrase_span'] = df_lemma['phrase_span'].astype(object)
+                df_lemma['phrase_confidence'] = df_lemma['phrase_confidence'].astype(float)
+                df_lemma['phrase_ambiguous'] = df_lemma['phrase_ambiguous'].astype(bool)
+                df_lemma['phrase_is_idiom'] = df_lemma['phrase_is_idiom'].astype(bool)
             else:
                 df_lemma = pd.DataFrame([],columns=['id','word','lemma','pos','CEFR','whitespace','sentence_id',
                                     'form','tense1','tense2','tense_term','CEFR_tense','tense_span',

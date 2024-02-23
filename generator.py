@@ -56,9 +56,7 @@ class AdoQuestionGenerator(object):
 
         if level is None:
             if self.analyser is not None:
-                result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=False)
+                result = self.analyser.analyze_cefr(text,v=2)
                 level = min(int(result["final_levels"]["general_level"]),5)
                 print(f"Level detected: {level}")
         else:
@@ -66,8 +64,8 @@ class AdoQuestionGenerator(object):
         
         if level is not None:
             target_level = level_int2str[level]
-            max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-            min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+            max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
+            min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
             if kind!='multiple_choice_cloze':
                 level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers,"
             else:
@@ -398,11 +396,9 @@ class AdoTextGenerator(object):
                                     'infinitive perfect continuous':'(not) to have been doing, can/could/should/... (not) have been doing',
                                     'infinitive perfect passive':'(not) to have been done, can/could/should/... (not) have been done'}
 
-    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,ignore_keywords=True,
-                    propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
-                    return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                    return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,
+                    settings={'ignore_keywords':True,'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                    outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels']):
         if grammar is not None and not isinstance(grammar,list):
             raise InformError("grammar must be a list of strings.")
         if keywords is not None and not isinstance(keywords,list):
@@ -419,30 +415,26 @@ class AdoTextGenerator(object):
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
 
         custom_dictionary = {}
-        if keywords and ignore_keywords:
+        if keywords and settings.get('ignore_keywords',True):
             for x in keywords:
                 if isinstance(x,str):
                     custom_dictionary[x] = -1
                 else:
                     custom_dictionary[tuple(x)] = -1
+            settings['custom_dictionary'] = custom_dictionary.uupdate(settings.get('custom_dictionary',{}))
         if grammar:
             model = 'gpt-4'
         else:
             model = 'gpt-3.5-turbo'
 
 
-        return self.execute_prompt(prompt,level,temp_results=[],model=model,
-                                   propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                                   return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                                   return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,
-                                   return_clause_count=return_clause_count,return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
-                                   return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
+        return self.execute_prompt(prompt,level,temp_results=[], model=model, settings=settings, outputs=outputs)
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
 
         target_level = level_int2str[level]
-        max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-        min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+        max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
+        min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
         requirements = ['There should not be a title.']
 
         if topic:
@@ -498,10 +490,8 @@ In the meantime, the text should meet the following requirements:
         return prompt.strip('\n').replace(' None ',' ')
 
     def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],model='gpt-3.5-turbo',
-                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
-                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+                       settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                       outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels']):
         model = 'gpt-4-1106-preview'
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
@@ -518,11 +508,7 @@ In the meantime, the text should meet the following requirements:
                 break
             except:
                 continue
-        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
-                        return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels,return_result=True)
+        result = self.analyser.analyze_cefr(text,settings=settings,outputs=outputs,v=2)
         if int(result['final_levels']['general_level'])!=level:
             if auto_retry>0:
                 temp_results.append([result['final_levels']['general_level'],text,result])
@@ -592,9 +578,7 @@ class AdoWritingAssessor(object):
             language_prompt = ''
             
         if original_analysis is None:
-            original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+            original_analysis = self.analyser.analyze_cefr(text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
         
         target_level = level_int2str.get(np.ceil(original_analysis['final_levels']['vocabulary_level']), 'C2')
 
@@ -662,9 +646,7 @@ Writing:
             x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
-        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        revision_analysis = self.analyser.analyze_cefr(revised_text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
 
         original_analysis['final_levels']['clause_level'] = revision_analysis['final_levels']['clause_level']
         average_level = (original_analysis['final_levels']['vocabulary_level']+original_analysis['final_levels']['tense_level']+original_analysis['final_levels']['clause_level'])/3
@@ -701,8 +683,8 @@ Writing:
             
             if level in level_int2str:
                 target_level = level_int2str[level]
-                max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-                min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+                max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
+                min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
                 level_prompt = f"The improved writing should have a level of {target_level}. To enhanced vocabulary, add only several words at {target_level} level. Add no words above {target_level} level. The majority of words should be below {target_level} level."
             else:
                 level_prompt = f"The improved writing should have a level of {level}."
@@ -772,13 +754,8 @@ Writing:
             x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
-
-        original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
-        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        original_analysis = self.analyser.analyze_cefr(text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
+        revision_analysis = self.analyser.analyze_cefr(revised_text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
 
         diff = self.mark_differences(text,revised_text)
         return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'combined_text_tagged':diff[2],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}

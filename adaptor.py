@@ -96,9 +96,7 @@ class AdoLevelAdaptor(object):
     def start_adapt_cefr(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="piece", min_piece_length=200, auto_retry=False):
 
         if self.before_result is None:
-            before_result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+            before_result = self.analyser.analyze_cefr(text,outputs=['sentences','wordlists','final_levels','modified_final_levels'], v=2)
         else:
             before_result = self.before_result
         before_levels = before_result['final_levels']
@@ -133,9 +131,7 @@ class AdoLevelAdaptor(object):
             #if by=='sentence':
             #    piece_levels = sentence_levels[k]
             if n_pieces>1:
-                piece_result = self.analyser.analyze_cefr(piece,return_sentences=True, return_wordlists=True,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                piece_result = self.analyser.analyze_cefr(piece, outputs=['sentences','wordlists','final_levels'], v=2)
                 piece_levels = piece_result['final_levels']
             else:
                 piece_levels = before_levels
@@ -212,9 +208,7 @@ class AdoLevelAdaptor(object):
             after_text = ' '.join(adaptations)
         
         if len(adaptations)>1:
-            after_result = self.analyser.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+            after_result = self.analyser.analyze_cefr(after_text,outputs=['final_levels','modified_final_levels'], v=2)
         if after_result is None:
             after_levels = before_levels
             modified_after_levels = modified_before_levels
@@ -289,17 +283,19 @@ class AdoLevelAdaptor(object):
                     tagged_text += s["word"][i]+' '*s["whitespace"][i]
         return tagged_text
     
-    def tag_difficult_sentences(self, result, target_level):
+    def tag_difficult_sentences(self, result, target_level, target_adjustment=0.5):
         not_tagged = True
         tagged_text = ''
+        max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
         for s in result['sentences'].values():
+            length = sum([1 for x in s['pos'] if x not in ['PUNCT','SPACE']])
             sent = ''
             for i in range(len(s['lemma'])):
                 sent += s["word"][i]+' '*s["whitespace"][i]
-            if int(s['CEFR_clause'])>target_level+1:
+            if int(s['CEFR_clause'])>target_level+1 or length>max_length:
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
-            elif int(s['CEFR_clause'])==target_level+1 and (not_tagged or np.random.rand()<0.5):
+            elif (int(s['CEFR_clause'])==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
             else:
@@ -324,9 +320,7 @@ class AdoLevelAdaptor(object):
                         min_difference = diff
         else:
             for candidate in candidates:
-                result = self.analyser.analyze_cefr(candidate,return_sentences=True, return_wordlists=True, return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+                result = self.analyser.analyze_cefr(candidate,outputs=['sentences','wordlists','final_levels','modified_final_levels'], v=2)
                 if int(result['final_levels']['vocabulary_level'])==target_level and int(result['final_levels']['vocabulary_level']+0.2)==target_level and int(result['final_levels']['clause_level'])==target_level and int(result['final_levels']['clause_level']+0.2)==target_level:
                     finalist = candidate
                     finalist_result = result
@@ -574,8 +568,8 @@ Output only the new text without any comments or tags.'''
     '''
             if direction == 'down':
                 if change!='vocabulary':
-                    max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-                    min_length = max(1,int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0)))
+                    max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
+                    min_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment-0.5)
                     prompt += f'''\nIn this text, sentences within <i> tags are difficult for CEFR {level}.
     Change the structure of these tagged sentences following these rules:
     1. Use no more than {max_length} words for each sentence.
@@ -603,8 +597,8 @@ Output only the new text without any comments or tags.'''
     '''
 
             else:
-                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
+                max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
+                min_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment-0.5)
                 prompt += f'''\nThis text is too easy for CEFR {level} level. Rewrite it so that it satisfies these requirements:
     1. There are many words at CEFR {level} level, but no words above CEFR {level} level.
     2. Each sentence should have approximately {min_length} to {max_length} words.
