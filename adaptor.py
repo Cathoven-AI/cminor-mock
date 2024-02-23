@@ -290,12 +290,13 @@ class AdoLevelAdaptor(object):
         for s in result['sentences'].values():
             length = sum([1 for x in s['pos'] if x not in ['PUNCT','SPACE']])
             sent = ''
+            CEFR_clause = int(max(s['CEFR_clause'])) if s['CEFR_clause'] else -1
             for i in range(len(s['lemma'])):
                 sent += s["word"][i]+' '*s["whitespace"][i]
-            if int(max(s['CEFR_clause']))>target_level+1 or length>max_length:
+            if CEFR_clause>target_level+1 or length>max_length:
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
-            elif (int(max(s['CEFR_clause']))==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
+            elif (CEFR_clause==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
             else:
