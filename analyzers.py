@@ -250,8 +250,8 @@ class AdoTextAnalyzer(object):
             self.text = text
         if self.readability is None:
             self.readability = self.ReadabilityAnalyzer(self)
-            self.readability.return_grades = return_grades
-            self.readability.start_analyze(language)
+        self.readability.return_grades = return_grades
+        self.readability.start_analyze(language)
         if return_result:
             return self.readability.result
 

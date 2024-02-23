@@ -64,8 +64,8 @@ class AdoQuestionGenerator(object):
         
         if level is not None:
             target_level = level_int2str[level]
-            max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
-            min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
+            max_length = self.analyser.cefr2.cefr2length(level+0.5)
+            min_length = self.analyser.cefr2.cefr2length(level-0.5)
             if kind!='multiple_choice_cloze':
                 level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers,"
             else:
@@ -433,8 +433,8 @@ class AdoTextGenerator(object):
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
 
         target_level = level_int2str[level]
-        max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
-        min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
+        max_length = self.analyser.cefr2.cefr2length(level+0.5)
+        min_length = self.analyser.cefr2.cefr2length(level-0.5)
         requirements = ['There should not be a title.']
 
         if topic:
@@ -683,8 +683,8 @@ Writing:
             
             if level in level_int2str:
                 target_level = level_int2str[level]
-                max_length = self.analyser.cefr2.cefr2length(target_level+0.5)
-                min_length = self.analyser.cefr2.cefr2length(target_level-0.5)
+                max_length = self.analyser.cefr2.cefr2length(level+0.5)
+                min_length = self.analyser.cefr2.cefr2length(level-0.5)
                 level_prompt = f"The improved writing should have a level of {target_level}. To enhanced vocabulary, add only several words at {target_level} level. Add no words above {target_level} level. The majority of words should be below {target_level} level."
             else:
                 level_prompt = f"The improved writing should have a level of {level}."
