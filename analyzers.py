@@ -229,7 +229,9 @@ class AdoTextAnalyzer(object):
                     self.cefr2.outputs = {'sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'}
                 else:
                     self.cefr2.outputs = set(outputs)
-                self.cefr2.settings = settings
+                default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
+                default_settings.update(settings)
+                self.cefr2.settings = default_settings
                 self.make_doc()
             self.cefr2.start_analyze()
             self.cefr.result = self.cefr2.result
