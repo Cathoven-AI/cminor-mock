@@ -362,12 +362,14 @@ class AdoLevelAdaptor(object):
                     if n_self_try==0:
                         completion = await self.async_client.chat.completions.create(
                             model='gpt-4', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
                         completion = await self.async_client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     for x in completion.choices:
                         x = x.message.content.strip()
@@ -385,12 +387,14 @@ class AdoLevelAdaptor(object):
                     if n_self_try==0:
                         completion = await self.async_client.chat.completions.create(
                             model='gpt-4', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
                         completion = await self.async_client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     for x in completion.choices:
                         x = x.message.content.strip()
@@ -462,12 +466,14 @@ class AdoLevelAdaptor(object):
                     if n_self_try==0:
                         completion = self.client.chat.completions.create(
                             model='gpt-4', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
                         completion = self.client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     self.openai_time += time.time()-openai_t0
                     for x in completion.choices:
@@ -490,12 +496,14 @@ class AdoLevelAdaptor(object):
                     if n_self_try==0:
                         completion = self.client.chat.completions.create(
                             model='gpt-4', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
                         completion = self.client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     self.openai_time += time.time()-openai_t0
                     for x in completion.choices:

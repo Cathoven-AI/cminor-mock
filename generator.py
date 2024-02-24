@@ -55,7 +55,7 @@ class AdoQuestionGenerator(object):
             self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
 
         if level is None:
-            if self.analyser is not None:
+            if self.analyser is not None and (question_language is None or question_language=='English'):
                 result = self.analyser.analyze_cefr(text,v=2)
                 level = min(int(result["final_levels"]["general_level"]),5)
                 print(f"Level detected: {level}")
@@ -82,7 +82,7 @@ class AdoQuestionGenerator(object):
             level_prompt = ''
 
         question_language_promt = ''
-        if question_language is not None:
+        if question_language is not None and question_language!='English':
             question_language_promt = 'The questions should be created in '+question_language+'.'
             level_prompt = ''
 
@@ -323,11 +323,12 @@ class AdoQuestionGenerator(object):
 
         if questions is None:
             if auto_retry>0:
-                if auto_retry%2==1:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
+                if auto_retry%2==1 and len(questions)>=n:
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language, 
+                                                   override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
+                                                                               {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
                 else:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
 
