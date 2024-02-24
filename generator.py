@@ -324,7 +324,7 @@ class AdoQuestionGenerator(object):
 
         if questions is None:
             if auto_retry>0:
-                if auto_retry%2==1 and len(questions)>=n:
+                if auto_retry%2==1:
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language, 
                                                    override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
