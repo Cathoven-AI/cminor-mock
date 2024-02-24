@@ -1,5 +1,6 @@
 import numpy as np
-import openai, json, ast, warnings, os, sys, re, difflib
+import json, ast, warnings, os, sys, re, difflib, httpx
+from openai import OpenAI
 from nltk.tokenize import sent_tokenize
 from .utils import InformError, clean_target_level_input
 
@@ -40,9 +41,11 @@ level_int2str = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
 class AdoQuestionGenerator(object):
     def __init__(self, text_analyser=None, openai_api_key=None):
         self.openai_api_key = openai_api_key
+        self.client = None
         self.analyser = text_analyser
         
-    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
+    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, 
+                           answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
@@ -50,13 +53,11 @@ class AdoQuestionGenerator(object):
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
 
         if level is None:
-            if self.analyser is not None:
-                result = self.analyser.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=False)
+            if self.analyser is not None and (question_language is None or question_language=='English'):
+                result = self.analyser.analyze_cefr(text,v=2)
                 level = min(int(result["final_levels"]["general_level"]),5)
                 print(f"Level detected: {level}")
         else:
@@ -64,8 +65,8 @@ class AdoQuestionGenerator(object):
         
         if level is not None:
             target_level = level_int2str[level]
-            max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-            min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+            max_length = self.analyser.cefr2.cefr2length(level+0.5)
+            min_length = self.analyser.cefr2.cefr2length(level-0.5)
             if kind!='multiple_choice_cloze':
                 level_prompt = f"The exercises are for CEFR {target_level} students. In the questions and answers,"
             else:
@@ -82,7 +83,7 @@ class AdoQuestionGenerator(object):
             level_prompt = ''
 
         question_language_promt = ''
-        if question_language is not None:
+        if question_language is not None and question_language!='English':
             question_language_promt = 'The questions should be created in '+question_language+'.'
             level_prompt = ''
 
@@ -307,7 +308,7 @@ class AdoQuestionGenerator(object):
         n_self_try = 3
         while n_self_try>0:
             try:
-                completion = openai.ChatCompletion.create(
+                completion = self.client.chat.completions.create(
                     model='gpt-4-1106-preview',#"gpt-3.5-turbo",
                     messages=messages_to_send
                 )
@@ -318,16 +319,17 @@ class AdoQuestionGenerator(object):
                     return {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                 print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
 
-        response = completion['choices'][0]['message']['content'].strip(' `')
+        response = completion.choices[0].message.content.strip(' `')
         questions = parse_response(response)
 
         if questions is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                              {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language, 
+                                                   override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
+                                                                               {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
                 else:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1)
+                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
 
@@ -396,11 +398,9 @@ class AdoTextGenerator(object):
                                     'infinitive perfect continuous':'(not) to have been doing, can/could/should/... (not) have been doing',
                                     'infinitive perfect passive':'(not) to have been done, can/could/should/... (not) have been done'}
 
-    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,ignore_keywords=True,
-                    propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
-                    return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                    return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+    def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,
+                    settings={'ignore_keywords':True,'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                    outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels']):
         if grammar is not None and not isinstance(grammar,list):
             raise InformError("grammar must be a list of strings.")
         if keywords is not None and not isinstance(keywords,list):
@@ -410,37 +410,39 @@ class AdoTextGenerator(object):
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         level = clean_target_level_input(level)
 
         prompt = self.construct_prompt(level=level,n_words=n_words,topic=topic,keywords=keywords,grammar=grammar,genre=genre)
 
         custom_dictionary = {}
-        if keywords and ignore_keywords:
+        if keywords and settings.get('ignore_keywords',True):
             for x in keywords:
                 if isinstance(x,str):
                     custom_dictionary[x] = -1
                 else:
                     custom_dictionary[tuple(x)] = -1
+            custom_dictionary.update(settings.get('custom_dictionary',{}))
+        default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
+        default_settings.update(settings)
+        if 'ignore_keywords' in default_settings:
+            del default_settings['ignore_keywords']
+        settings = default_settings
+        settings['custom_dictionary'] = custom_dictionary
         if grammar:
             model = 'gpt-4'
         else:
             model = 'gpt-3.5-turbo'
 
 
-        return self.execute_prompt(prompt,level,temp_results=[],model=model,
-                                   propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                                   return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                                   return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,
-                                   return_clause_count=return_clause_count,return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
-                                   return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
+        return self.execute_prompt(prompt,level,temp_results=[], model=model, settings=settings, outputs=outputs)
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
 
         target_level = level_int2str[level]
-        max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-        min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+        max_length = self.analyser.cefr2.cefr2length(level+0.5)
+        min_length = self.analyser.cefr2.cefr2length(level-0.5)
         requirements = ['There should not be a title.']
 
         if topic:
@@ -496,10 +498,8 @@ In the meantime, the text should meet the following requirements:
         return prompt.strip('\n').replace(' None ',' ')
 
     def execute_prompt(self,prompt,level,auto_retry=3,temp_results=[],model='gpt-3.5-turbo',
-                       propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
-                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_modified_final_levels=True):
+                       settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                       outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels']):
         model = 'gpt-4-1106-preview'
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
@@ -507,20 +507,16 @@ In the meantime, the text should meet the following requirements:
         #     model = "gpt-4"
         for i in range(3):
             try:
-                completion = openai.ChatCompletion.create(
+                completion = self.client.chat.completions.create(
                     model=model,
                     messages=[{"role": "user", "content": prompt}],
                     n=1
                 )
-                text = parse_response(completion['choices'][0]['message']['content'])['text']
+                text = parse_response(completion.choices[0].message.content)['text']
                 break
             except:
                 continue
-        result = self.analyser.analyze_cefr(text,propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,
-                        return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels,return_result=True)
+        result = self.analyser.analyze_cefr(text,settings=settings,outputs=outputs,v=2)
         if int(result['final_levels']['general_level'])!=level:
             if auto_retry>0:
                 temp_results.append([result['final_levels']['general_level'],text,result])
@@ -566,13 +562,14 @@ class AdoWritingAssessor(object):
     def __init__(self, text_analyser, openai_api_key=None):
         self.openai_api_key = openai_api_key
         self.analyser = text_analyser
+        self.client = None
 
     def revise(self,text, comment=False, writing_language='English', comment_language=None, auto_retry=2, original_analysis=None, override_messages=None):
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         if comment==True:
             json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
@@ -589,9 +586,7 @@ class AdoWritingAssessor(object):
             language_prompt = ''
             
         if original_analysis is None:
-            original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+            original_analysis = self.analyser.analyze_cefr(text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
         
         target_level = level_int2str.get(np.ceil(original_analysis['final_levels']['vocabulary_level']), 'C2')
 
@@ -621,21 +616,21 @@ Writing:
         else:
             messages_to_send = override_messages
 
-        completion = openai.ChatCompletion.create(
+        completion = self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages_to_send
         )
 
-        result = parse_response(completion['choices'][0]['message']['content'])
+        result = parse_response(completion.choices[0].message.content)
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
         
         revised_text = text+''
         result2 = []
@@ -659,9 +654,7 @@ Writing:
             x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
-        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        revision_analysis = self.analyser.analyze_cefr(revised_text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
 
         original_analysis['final_levels']['clause_level'] = revision_analysis['final_levels']['clause_level']
         average_level = (original_analysis['final_levels']['vocabulary_level']+original_analysis['final_levels']['tense_level']+original_analysis['final_levels']['clause_level'])/3
@@ -677,7 +670,7 @@ Writing:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(150, connect=5))
 
         if comment==True:
             json_format = '''[{"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, {"original": original sentences, "revision": the improved sentences, "type":[revision type, ...], "comment": ...]}, ...]'''
@@ -698,8 +691,8 @@ Writing:
             
             if level in level_int2str:
                 target_level = level_int2str[level]
-                max_length = int(round(np.log(level+0.5+1.5)/np.log(1.1),0))
-                min_length = max(1,int(round(np.log(level+0.5-1+1.5)/np.log(1.1),0)))
+                max_length = self.analyser.cefr2.cefr2length(level+0.5)
+                min_length = self.analyser.cefr2.cefr2length(level-0.5)
                 level_prompt = f"The improved writing should have a level of {target_level}. To enhanced vocabulary, add only several words at {target_level} level. Add no words above {target_level} level. The majority of words should be below {target_level} level."
             else:
                 level_prompt = f"The improved writing should have a level of {level}."
@@ -731,21 +724,21 @@ Writing:
         else:
             messages_to_send = override_messages
 
-        completion = openai.ChatCompletion.create(
+        completion = self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=messages_to_send
         )
 
-        result = parse_response(completion['choices'][0]['message']['content'])
+        result = parse_response(completion.choices[0].message.content)
         if result is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
+                    return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                                               {"role": "user", "content": f"The output you returned are not in the correct Python list of dictionaries format. Return them as a Python list of dictionaries like this example: {json_format}"}])
                 else:
                     return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion['choices'][0]['message']['content']}"}
+                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
         
         revised_text = text+''
         result2 = []
@@ -769,13 +762,8 @@ Writing:
             x.update({'original_tagged':diff[0],'revision_tagged':diff[1],'combined_tagged':diff[2]})
             result2.append(x)
 
-
-        original_analysis = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
-        revision_analysis = self.analyser.analyze_cefr(revised_text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                            return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                            return_clause_stats=True,return_phrase_count=True,return_final_levels=True,return_result=True)
+        original_analysis = self.analyser.analyze_cefr(text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
+        revision_analysis = self.analyser.analyze_cefr(revised_text, outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels'],v=2)
 
         diff = self.mark_differences(text,revised_text)
         return {'revised_text':revised_text,'revised_text_tagged':diff[1],'original_text_tagged':diff[0],'combined_text_tagged':diff[2],'revisions':result2,'original_analysis':original_analysis, 'revision_analysis':revision_analysis}

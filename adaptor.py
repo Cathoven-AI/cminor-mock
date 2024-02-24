@@ -1,14 +1,16 @@
 import numpy as np
 import pandas as pd
-import openai, warnings, time, os, sys, ast
+import warnings, time, os, sys, ast, asyncio, nest_asyncio, httpx
+from openai import AsyncOpenAI, OpenAI
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
 from .utils import InformError, clean_target_level_input
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+
+nest_asyncio.apply()
 gpt_tokenizer = GPT2Tokenizer.from_pretrained(os.path.join(BASE_DIR, "files/model_files/gpt_tokenizer"))
 df_catile_examples = pd.read_csv(os.path.join(BASE_DIR, 'files/model_files/catile_example_texts.csv'))
-df_catile_examples = df_catile_examples[~((df_catile_examples['catile']<500) & df_catile_examples['content'].apply(lambda x: x.count('?')>=4))]
 
 class AdoLevelAdaptor(object):
     def __init__(self, text_analyser, openai_api_key=None):
@@ -16,6 +18,8 @@ class AdoLevelAdaptor(object):
         self.before_result = None
         self.analyser = text_analyser
         self.result = None
+        self.async_client = None
+        self.client = None
 
 
     def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", min_piece_length=200, n=1, auto_retry=False, return_result=True, model="cefr"):
@@ -26,29 +30,28 @@ class AdoLevelAdaptor(object):
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
         else:
-            openai.api_key = self.openai_api_key
+            self.async_client = AsyncOpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
 
-        if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+        # if self.analyser.detect(text.replace('\n',' '))['lang'] != 'en':
+        #     raise InformError("Language not supported. Please use English.")
         text = text.replace("\u00A0", " ").replace('\xa0',' ').strip()
-        by = 'piece'
-
+        auto_retry = max(0,min(int(auto_retry),5))
         self.before_result = None
         self.example_texts = None
 
         model = model.lower()
         target_level = clean_target_level_input(target_level, model=model)
         if model == 'catile':
-            auto_retry = max(0,min(int(auto_retry),5))
+            min_piece_length = max(min_piece_length, 2000)
             if target_level<500:
                 n = max(1,min(n,5))
-                self.start_adapt_catile(text, target_level, n=1, auto_retry=max(n-1,auto_retry))
+                self.start_adapt_catile(text, target_level, n=1, min_piece_length=min_piece_length, auto_retry=max(n-1,auto_retry))
             else:
-                n = max(1,min(n,2))
-                self.start_adapt_catile(text, target_level, n=n, auto_retry=auto_retry)
+                n = max(1,min(n,int(3-min_piece_length/200)))
+                self.start_adapt_catile(text, target_level, n=n, min_piece_length=min_piece_length, auto_retry=auto_retry)
         else:
-            n = max(1,min(n,int(5-len(text.split(' '))/200)))
-            auto_retry = max(0,min(int(auto_retry),int(5-len(text.split(' '))/150)))
+            n = max(1,min(n,int(6-min_piece_length/200)))
             self.start_adapt_cefr(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, min_piece_length=min_piece_length, auto_retry=auto_retry)
 
         print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
@@ -93,9 +96,7 @@ class AdoLevelAdaptor(object):
     def start_adapt_cefr(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="piece", min_piece_length=200, auto_retry=False):
 
         if self.before_result is None:
-            before_result = self.analyser.analyze_cefr(text,return_sentences=True, return_wordlists=True,return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+            before_result = self.analyser.analyze_cefr(text,outputs=['sentences','wordlists','final_levels','modified_final_levels'], v=2)
         else:
             before_result = self.before_result
         before_levels = before_result['final_levels']
@@ -107,7 +108,7 @@ class AdoLevelAdaptor(object):
             modified_before_levels = None
         after_result = None
         modified_after_levels = None
-        adaptations = []
+        
 
         pieces = []
         '''
@@ -120,24 +121,17 @@ class AdoLevelAdaptor(object):
                 pieces.append(piece)
                 sentence_levels.append({"general_level":max(v['CEFR_vocabulary'],v['CEFR_clause']),"vocabulary_level":v['CEFR_vocabulary'],"clause_level":v['CEFR_clause']})
         '''
-        if by=='paragraph':
-            pieces += self.divide_piece(text, min_piece_length=min_piece_length, by=by)
-        else:
-            pieces = self.divide_piece(text, min_piece_length=2000, by=by)
+        pieces = self.divide_piece(text, min_piece_length=min_piece_length, by=by)
+        pieces = [x.strip() for x in pieces if len(x.strip())>0]
 
         n_pieces = len(pieces)
-
+        adaptations = [None]*n_pieces
+        piece_infos_dict = {}
         for k,piece in enumerate(pieces):
-            if len(piece.strip())==0:
-                adaptations.append(piece)
-                continue
-            
             #if by=='sentence':
             #    piece_levels = sentence_levels[k]
             if n_pieces>1:
-                piece_result = self.analyser.analyze_cefr(piece,return_sentences=True, return_wordlists=True,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
+                piece_result = self.analyser.analyze_cefr(piece, outputs=['sentences','wordlists','final_levels'], v=2)
                 piece_levels = piece_result['final_levels']
             else:
                 piece_levels = before_levels
@@ -162,23 +156,51 @@ class AdoLevelAdaptor(object):
                     change_vocabulary = 1
                     change_clause = 1
                 else:
-                    adaptations.append(piece)
+                    adaptations[k] = piece
                     continue
-            adaptation = piece
+            # adaptation = piece
+            # if change_vocabulary>0 or change_clause>0:
+            #     adaptation, after_result = self.get_adaptation(adaptation, target_level, target_adjustment=target_adjustment, n=n, direction="up")
+            #     if int(after_result['final_levels']['general_level'])>target_level:
+            #         if int(after_result['final_levels']['vocabulary_level'])>target_level:
+            #             adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
+            #         if int(after_result['final_levels']['clause_level'])>target_level:
+            #             adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
+            # else:
+            #     after_result = piece_result
+            #     if change_vocabulary<0:
+            #         adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
+            #     if change_clause<0 and int(after_result['final_levels']['clause_level'])>target_level:
+            #         adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
+            # adaptations.append(adaptation.strip('\n'))
+                
             if change_vocabulary>0 or change_clause>0:
-                adaptation, after_result = self.get_adaptation(adaptation, target_level, target_adjustment=target_adjustment, n=n, direction="up")
-                if int(after_result['final_levels']['general_level'])>target_level:
-                    if int(after_result['final_levels']['vocabulary_level'])>target_level:
-                        adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
-                    if int(after_result['final_levels']['clause_level'])>target_level:
-                        adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
+                piece_infos_dict[k] = {'text':piece,'target_level':target_level,'target_adjustment':target_adjustment,'change':'vocabulary','direction':'up','model':'cefr', 'stage':1}
             else:
-                after_result = piece_result
                 if change_vocabulary<0:
-                    adaptation, after_result = self.get_adaptation(self.tag_difficult_words(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='vocabulary',direction="down")
-                if change_clause<0 and int(after_result['final_levels']['clause_level'])>target_level:
-                    adaptation, after_result = self.get_adaptation(self.tag_difficult_sentences(after_result,target_level), target_level, target_adjustment=target_adjustment, n=n, change='clause',direction="down")
-            adaptations.append(adaptation.strip('\n'))
+                    piece_infos_dict[k] = {'text':self.tag_difficult_words(piece_result,target_level),'target_level':target_level,'target_adjustment':target_adjustment,'change':'vocabulary','direction':'down','model':'cefr', 'stage':2}
+                elif change_clause<0 and int(piece_result['final_levels']['clause_level'])>target_level:
+                    piece_infos_dict[k] = {'text':self.tag_difficult_words(piece_result,target_level),'target_level':target_level,'target_adjustment':target_adjustment,'change':'clause','direction':'down','model':'cefr', 'stage':3}
+        
+        while len(piece_infos_dict)>0:
+            candidates_infos_dict = self.gather_candidates(piece_infos_dict)
+            finalists_dict = self.get_finalists(candidates_infos_dict)
+            for k,v in finalists_dict.items():
+                adaptation, after_result = v
+                if piece_infos_dict[k]['stage']==1:
+                    if int(after_result['final_levels']['general_level'])>target_level:
+                        if int(after_result['final_levels']['vocabulary_level'])>target_level:
+                            piece_infos_dict[k] = {'text':self.tag_difficult_words(after_result,target_level),'target_level':target_level,'target_adjustment':target_adjustment,'change':'vocabulary','direction':'down','model':'cefr', 'stage':2}
+                            continue
+                        elif int(after_result['final_levels']['clause_level'])>target_level:
+                            piece_infos_dict[k] = {'text':self.tag_difficult_sentences(after_result,target_level),'target_level':target_level,'target_adjustment':target_adjustment,'change':'clause','direction':'down','model':'cefr', 'stage':3}
+                            continue
+                elif piece_infos_dict[k]['stage']==2 and int(after_result['final_levels']['clause_level'])>target_level:
+                    piece_infos_dict[k] = {'text':self.tag_difficult_sentences(after_result,target_level),'target_level':target_level,'target_adjustment':target_adjustment,'change':'clause','direction':'down','model':'cefr', 'stage':3}
+                    continue
+                adaptations[k] = adaptation.strip('\n')
+                del piece_infos_dict[k]
+
 
         if by=='paragraph':
             after_text = '\n'.join(adaptations)
@@ -186,9 +208,7 @@ class AdoLevelAdaptor(object):
             after_text = ' '.join(adaptations)
         
         if len(adaptations)>1:
-            after_result = self.analyser.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+            after_result = self.analyser.analyze_cefr(after_text,outputs=['final_levels','modified_final_levels'], v=2)
         if after_result is None:
             after_levels = before_levels
             modified_after_levels = modified_before_levels
@@ -199,7 +219,7 @@ class AdoLevelAdaptor(object):
                 modified_after_levels = after_result['modified_final_levels'][-1]
 
 
-        if auto_retry>0 and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
+        if auto_retry>0 and time.time()-self.t0<60 and int(after_levels['general_level'])!=target_level and (modified_after_levels is None or int(modified_after_levels['final_levels']['general_level'])!=target_level):
             return self.start_adapt_cefr(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by='piece', auto_retry=auto_retry-1)
 
         self.result = {
@@ -253,27 +273,30 @@ class AdoLevelAdaptor(object):
         tagged_text = ''
         for s in sentences.values():
             for i in range(len(s['lemma'])):
-                if s['CEFR'][i]>threshold:
+                if s['CEFR_vocabulary'][i]>threshold:
                     tagged_text += "<b>"+s["word"][i]+"</b>"+' '*s["whitespace"][i]
                     not_tagged = False
-                elif s['CEFR'][i]==threshold and (not_tagged or np.random.rand()<p):
+                elif s['CEFR_vocabulary'][i]==threshold and (not_tagged or np.random.rand()<p):
                     tagged_text += "<b>"+s["word"][i]+"</b>"+' '*s["whitespace"][i]
                     not_tagged = False
                 else:
                     tagged_text += s["word"][i]+' '*s["whitespace"][i]
         return tagged_text
     
-    def tag_difficult_sentences(self, result, target_level):
+    def tag_difficult_sentences(self, result, target_level, target_adjustment=0.5):
         not_tagged = True
         tagged_text = ''
+        max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
         for s in result['sentences'].values():
+            length = sum([1 for x in s['pos'] if x not in ['PUNCT','SPACE']])
             sent = ''
+            CEFR_clause = int(max(s['CEFR_clause'])) if s['CEFR_clause'] else -1
             for i in range(len(s['lemma'])):
                 sent += s["word"][i]+' '*s["whitespace"][i]
-            if int(s['CEFR_clause'])>target_level+1:
+            if CEFR_clause>target_level+1 or length>max_length:
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
-            elif int(s['CEFR_clause'])==target_level+1 and (not_tagged or np.random.rand()<0.5):
+            elif (CEFR_clause==target_level+1 or length==max_length) and (not_tagged or np.random.rand()<0.5):
                 tagged_text += "<i>"+sent+"</i>"
                 not_tagged = False
             else:
@@ -285,7 +308,7 @@ class AdoLevelAdaptor(object):
         finalist_result = None
         if model=='catile':
             for candidate in candidates:
-                result = self.analyser.analyze_catile(candidate,return_result=True)
+                result = self.analyser.analyze_catile(candidate,v=2)
                 if int(round(result['scores']['catile']/10)*10)==target_level:
                     finalist = candidate
                     finalist_result = result
@@ -298,9 +321,7 @@ class AdoLevelAdaptor(object):
                         min_difference = diff
         else:
             for candidate in candidates:
-                result = self.analyser.analyze_cefr(candidate,return_sentences=True, return_wordlists=True, return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False,return_modified_final_levels=True)
+                result = self.analyser.analyze_cefr(candidate,outputs=['sentences','wordlists','final_levels','modified_final_levels'], v=2)
                 if int(result['final_levels']['vocabulary_level'])==target_level and int(result['final_levels']['vocabulary_level']+0.2)==target_level and int(result['final_levels']['clause_level'])==target_level and int(result['final_levels']['clause_level']+0.2)==target_level:
                     finalist = candidate
                     finalist_result = result
@@ -318,37 +339,145 @@ class AdoLevelAdaptor(object):
                         min_difference = diff
         return finalist, finalist_result
 
-    def get_adaptation(self, text, target_level, target_adjustment=0.5, tolerance=50, n=1, change='vocabulary', direction="down", model='cefr'):
+    async def get_adaptation_candidates(self, text, target_level, target_adjustment=0.5, tolerance=50, n=1, change='vocabulary', direction="down", model='cefr'):
+        print('Adapting piece')
         n = min(n,10)
         model_name = 'gpt-4-0125-preview'
         n_per_call = min(max(1,int(3000/len(text.split(' '))-1)),n)
-        n_self_try = 4
+        n_self_try = 3
         candidates = []
 
         if model=='catile':
             if self.example_texts is None:
                 catile_examples = df_catile_examples.copy()
-                catile_examples['diff'] = abs(catile_examples['catile']-target_level)
-                self.example_texts = catile_examples.sort_values('diff').head(50)['content'].tolist()
+                catile_examples['diff'] = catile_examples['catile']-target_level
+                catile_examples['diff_abs'] = abs(catile_examples['catile']-target_level)
+                catile_examples = catile_examples.sort_values(['diff_abs','diff'])
+                self.example_texts = catile_examples.iloc[:5].sample(frac=1)['text'].tolist()+catile_examples.iloc[3:]['text'].tolist()
 
             while n_self_try>0 and len(candidates)<n:
                 n_self_try -= 1
                 prompt = self.construct_prompt(text=text, target_level=target_level, example_text=self.example_texts.pop(0), direction=direction, model=model)
                 try:
-                    openai_t0 = time.time()
                     if n_self_try==0:
-                        completion = openai.ChatCompletion.create(
-                            model='gpt-4-1106-preview', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                        completion = await self.async_client.chat.completions.create(
+                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
-                        completion = openai.ChatCompletion.create(
+                        completion = await self.async_client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
+                        )
+                    for x in completion.choices:
+                        x = x.message.content.strip()
+                        candidates.append(x)
+                except Exception as e:
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return
+                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+        else:
+            prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change=change, direction=direction, model=model)
+            while n_self_try>0 and len(candidates)<n:
+                n_self_try -= 1
+                try:
+                    if n_self_try==0:
+                        completion = await self.async_client.chat.completions.create(
+                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
+                        )
+                    else:
+                        completion = await self.async_client.chat.completions.create(
+                            model=model_name, n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
+                        )
+                    for x in completion.choices:
+                        x = x.message.content.strip()
+                        x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
+                        candidates.append(x)
+                except Exception as e:
+                    if n_self_try==0:
+                        self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
+                        return
+                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
+        return candidates
+
+    def gather_candidates(self, piece_infos_dict):
+        keys = []
+        values = []
+        tasks = []
+        for k, v in piece_infos_dict.items():
+            keys.append(k)
+            values.append({k2:v2 for k2,v2 in v.items() if k2!='stage'})
+            tasks.append(self.get_adaptation_candidates(**values[-1]))
+        openai_t0 = time.time()
+        candidates = asyncio.run(asyncio.gather(*tasks))
+        self.openai_time += time.time()-openai_t0
+        if values[0]['model']=='catile':
+            candidates_infos = [{'candidates':candidates[i], 'target_level':values[i]['target_level'], 'tolerance':values[i]['tolerance'], 'model':'catile'} for i in range(len(values))]
+        else:
+            candidates_infos = []
+            for i in range(len(values)):
+                piece_info = values[i]
+                if piece_info['direction']=="down":
+                    if piece_info['change']!='vocabulary':
+                        on = 'clause_level'
+                    else:
+                        on = 'vocabulary_level'
+                else:
+                    on = 'general_level'
+                candidates_infos.append({'candidates':candidates[i], 'target_level':values[i]['target_level'], 'target_adjustment':values[i]['target_adjustment'], 'on':on, 'model':'cefr'})
+        candidates_infos_dict = dict(zip(keys, candidates_infos))
+        return candidates_infos_dict
+    
+    def get_finalists(self, candidates_infos_dict):
+        finalists_dict = {}
+        for k, v in candidates_infos_dict.items():
+            finalists_dict[k] = self.get_best_candidate(**v)
+        return finalists_dict
+
+    def get_adaptation(self, text, target_level, target_adjustment=0.5, tolerance=50, n=1, change='vocabulary', direction="down", model='cefr'):
+        print('Adapting piece')
+        n = min(n,10)
+        model_name = 'gpt-4-0125-preview'
+        n_per_call = min(max(1,int(3000/len(text.split(' '))-1)),n)
+        n_self_try = 3
+        candidates = []
+
+        if model=='catile':
+            if self.example_texts is None:
+                catile_examples = df_catile_examples.copy()
+                catile_examples['diff'] = catile_examples['catile']-target_level
+                catile_examples['diff_abs'] = abs(catile_examples['catile']-target_level)
+                catile_examples = catile_examples.sort_values(['diff_abs','diff'])
+                self.example_texts = catile_examples.iloc[:5].sample(frac=1)['text'].tolist()+catile_examples.iloc[3:]['text'].tolist()
+
+            while n_self_try>0 and len(candidates)<n:
+                n_self_try -= 1
+                prompt = self.construct_prompt(text=text, target_level=target_level, example_text=self.example_texts.pop(0), direction=direction, model=model)
+                #print(prompt)
+                try:
+                    openai_t0 = time.time()
+                    if n_self_try==0:
+                        completion = self.client.chat.completions.create(
+                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
+                        )
+                    else:
+                        completion = self.client.chat.completions.create(
+                            model=model_name, n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     self.openai_time += time.time()-openai_t0
-                    for x in completion['choices']:
-                        x = x['message']['content'].strip()
+                    for x in completion.choices:
+                        x = x.message.content.strip()
                         candidates.append(x)
                 except Exception as e:
                     if n_self_try==0:
@@ -361,26 +490,27 @@ class AdoLevelAdaptor(object):
         else:
             prompt = self.construct_prompt(text=text, target_level=target_level, target_adjustment=target_adjustment, change=change, direction=direction, model=model)
             while n_self_try>0 and len(candidates)<n:
+                n_self_try -= 1
                 try:
                     openai_t0 = time.time()
                     if n_self_try==0:
-                        completion = openai.ChatCompletion.create(
-                            model='gpt-4-1106-preview', n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                        completion = self.client.chat.completions.create(
+                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     else:
-                        completion = openai.ChatCompletion.create(
+                        completion = self.client.chat.completions.create(
                             model=model_name, n=max(n_per_call,n-len(candidates)),
-                            messages=[{"role": "user", "content": prompt}]
+                            messages=[{"role": "user", "content": prompt}],
+                            #response_format={"type": "json_object"}
                         )
                     self.openai_time += time.time()-openai_t0
-                    for x in completion['choices']:
-                        x = x['message']['content'].strip()
+                    for x in completion.choices:
+                        x = x.message.content.strip()
                         x = x.replace('<b>','').replace('</b>','').replace('<i>','').replace('</i>','')
                         candidates.append(x)
-
                 except Exception as e:
-                    n_self_try -= 1
                     if n_self_try==0:
                         self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
                         return
@@ -447,8 +577,8 @@ Output only the new text without any comments or tags.'''
     '''
             if direction == 'down':
                 if change!='vocabulary':
-                    max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-                    min_length = max(1,int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0)))
+                    max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
+                    min_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment-0.5)
                     prompt += f'''\nIn this text, sentences within <i> tags are difficult for CEFR {level}.
     Change the structure of these tagged sentences following these rules:
     1. Use no more than {max_length} words for each sentence.
@@ -476,8 +606,8 @@ Output only the new text without any comments or tags.'''
     '''
 
             else:
-                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level-1+target_adjustment+1.5)/np.log(1.1),0))
+                max_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment+0.5)
+                min_length = self.analyser.cefr2.cefr2length(target_level+target_adjustment-0.5)
                 prompt += f'''\nThis text is too easy for CEFR {level} level. Rewrite it so that it satisfies these requirements:
     1. There are many words at CEFR {level} level, but no words above CEFR {level} level.
     2. Each sentence should have approximately {min_length} to {max_length} words.
@@ -490,9 +620,9 @@ Output only the new text without any comments or tags.'''
             return prompt
 
 
-    def start_adapt_catile(self, text, target_level, tolerance=50, n=1, auto_retry=False, previous_best=None):
+    def start_adapt_catile(self, text, target_level, tolerance=50, n=1, min_piece_length=2000, auto_retry=False, previous_best=None):
         if self.before_result is None:
-            before_result = self.analyser.analyze_catile(text,return_result=True)
+            before_result = self.analyser.analyze_catile(text,v=2)
         else:
             before_result = self.before_result
         before_level = int(round(before_result['scores']['catile']/10)*10)
@@ -500,7 +630,7 @@ Output only the new text without any comments or tags.'''
         adaptations = []
 
         pieces = []
-        pieces = self.divide_piece(text, min_piece_length=2000, by='piece')
+        pieces = self.divide_piece(text, min_piece_length=min_piece_length, by='piece')
         n_pieces = len(pieces)
         for k,piece in enumerate(pieces):
             if len(piece.strip())==0:
@@ -508,7 +638,7 @@ Output only the new text without any comments or tags.'''
                 continue
 
             if n_pieces>1:
-                piece_result = self.analyser.analyze_catile(piece,return_result=True)
+                piece_result = self.analyser.analyze_catile(piece,v=2)
                 piece_level = int(round(piece_result['scores']['catile']/10)*10)
             else:
                 piece_level = before_level
@@ -528,7 +658,7 @@ Output only the new text without any comments or tags.'''
         after_text = ' '.join(adaptations)
         
         if len(adaptations)>1:
-            after_result = self.analyser.analyze_catile(after_text,return_result=True)
+            after_result = self.analyser.analyze_catile(after_text,v=2)
         if after_result is None:
             after_level = before_level
         else:
@@ -537,7 +667,7 @@ Output only the new text without any comments or tags.'''
         if previous_best is None or abs(after_level-target_level)<abs(previous_best['after']-target_level):
             previous_best = {'adaptation':after_text,'before':before_level,'after': after_level}
 
-        if auto_retry>0 and abs(int(round(previous_best['after']/10)*10)-target_level)>tolerance:
+        if auto_retry>0 and time.time()-self.t0<90 and abs(int(round(previous_best['after']/10)*10)-target_level)>tolerance:
             return self.start_adapt_catile(text, target_level, tolerance=min(tolerance+10,100), n=n, auto_retry=auto_retry-1, previous_best=previous_best)
 
         self.result = previous_best

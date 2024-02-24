@@ -24,13 +24,22 @@ from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
 from transformers import GPT2Tokenizer
 from ftlangdetect import detect
+from sentence_transformers import SentenceTransformer
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+
+pd.set_option('future.no_silent_downcasting', True)
 
 # Lexile files
 neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)
+neural_model2 = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20240208'),compile=False)
+sentence_level_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/cefr/sentence_level_model'),compile=False)
+sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 with open(os.path.join(BASE_DIR, 'files/model_files/lexile_linear.pkl'), 'rb') as file:
     linear_model = pickle.load(file)
+
+with open(os.path.join(BASE_DIR, 'files/model_files/lexile_linear_20240208.pkl'), 'rb') as file:
+    linear_model2 = pickle.load(file)
 
 with open(os.path.join(BASE_DIR, 'files/model_files/normalization_arrays_2022.05.25/nsyl_high_mean_arr.npy'), 'rb') as f:
     nsyl_high_mean_arr = np.load(f)
@@ -127,65 +136,107 @@ topic_words = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/to
 
 del br2am, df_corpus, df_aoa, df_mrc, df_abstract, df_temp
 
+aoa_dict = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/aoa_dict.pkl'),'rb'))
+freq_dict_w_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/log_frequency_dict_w_pos.pkl'),'rb'))
+freq_dict_wo_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/log_frequency_dict_wo_pos.pkl'),'rb'))
+concreteness_dict = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/concreteness_dict.pkl'),'rb'))
+
 
 nlp = spacy.load('en_core_web_trf')
 
 stemmers = [PorterStemmer(), LancasterStemmer()]
 lemmatizer = WordNetLemmatizer()
 
-gpt_tokenizer = GPT2Tokenizer.from_pretrained(os.path.join(BASE_DIR, "files/model_files/gpt_tokenizer"))
-
 
 class AdoTextAnalyzer(object):
     def __init__(self, openai_api_key=None):
-        self.text = None
-        self.doc = None
-        self.cefr = self.CefrAnalyzer(self)
-        self.readability = self.ReadabilityAnalyzer(self)
-        self.catile = self.CatileAnalyzer(self)
-        self.simplifier = None
-        self.adaptor = None
+        self.init()
         self.openai_api_key = openai_api_key
         self.detect = detect
+        self.v = 1
 
-    def analyze_cefr(self,text,propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
-                    return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                    return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                    return_clause_stats=True,return_phrase_count=True,return_final_levels=True,
-                    return_result=True,clear_simplifier=True,return_modified_final_levels=False):
+    def init(self):
+        self.text = None
+        self.doc = None
+        self.cefr = self.CEFRAnalyzer(self)
+        self.cefr2 = self.CEFRAnalyzer2(self)
+        self.readability = self.ReadabilityAnalyzer(self)
+        self.catile = self.CatileAnalyzer(self)
+        self.catile2 = self.CatileAnalyzer2(self)
+        self.simplifier = None
+        self.adaptor = None
 
-        if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+    def make_doc(self):
+        self.doc = nlp(self.text)
+        for x in self.doc:
+            x = fine_lemmatize(x,self.doc,nlp)
 
+    def analyze_cefr(self,text,
+                     settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                     outputs=['final_levels'],
+                     propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
+                     return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
+                     return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
+                     return_clause_stats=True,return_phrase_count=True,return_final_levels=True,
+                     return_result=True,clear_simplifier=True,return_modified_final_levels=False, v=1):
         text = self.clean_text(text)
-        if text!=self.text or custom_dictionary!={}:
-            self.doc = None
-            self.cefr = None
-            self.readability = None
-            self.catile = None
-            if clear_simplifier:
-                self.simplifier = None
-                self.adaptor = None
-            self.text = text
 
-        temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
-                        'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
-                        'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
-                        'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels,'return_modified_final_levels':return_modified_final_levels}
+        if v==1:
 
-        if self.cefr is None or temp_settings!=self.cefr.print_settings():
+            # if detect(text.replace('\n',' '))['lang'] != 'en':
+            #     raise InformError("Language not supported. Please use English.")
+
+            temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
+                            'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
+                            'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
+                            'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels,'return_modified_final_levels':return_modified_final_levels}
+
+            if self.v!=v or text!=self.text or custom_dictionary!={} or temp_settings!=self.cefr.print_settings():
+                self.init()
+                self.v = v
+                self.text = text
+
             if self.doc is None:
-                self.doc = nlp(self.text)
-                for x in self.doc:
-                    x = fine_lemmatize(x,self.doc,nlp)
-            self.cefr = self.CefrAnalyzer(self)
+                self.make_doc()
+            self.cefr = self.CEFRAnalyzer(self)
             self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_modified_final_levels=return_modified_final_levels)
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,
+                        return_modified_final_levels=return_modified_final_levels)
 
-        if return_result:
+            if return_result:
+                return self.cefr.result
+            
+        else:
+            all_outputs = {'all','sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'}
+            invalid_outputs = set(outputs)-all_outputs
+            if len(invalid_outputs)>0:
+                raise InformError(f"Invalid output type: {', '.join(invalid_outputs)}")
+            all_settings = {'propn_as_lowest','intj_as_lowest','keep_min','custom_dictionary'}
+            invalid_settings = set(settings.keys())-all_settings
+            if len(invalid_settings)>0:
+                raise InformError(f"Invalid setting: {', '.join(invalid_settings)}")
+            
+            if self.v!=v or text!=self.text or self.cefr2.outputs != outputs or self.cefr2.settings != settings:
+                self.init()
+                self.v = v
+                self.text = text
+                
+                if 'all' in outputs:
+                    self.cefr2.outputs = {'sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'}
+                else:
+                    self.cefr2.outputs = set(outputs)
+                default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
+                default_settings.update(settings)
+                self.cefr2.settings = default_settings
+                self.make_doc()
+            if self.doc is None:
+                self.make_doc()
+            self.cefr2.start_analyze()
+            self.cefr.result = self.cefr2.result
             return self.cefr.result
+        
 
     def analyze_readability(self,text,language='en',return_grades=False,return_result=True):
         text = self.clean_text(text)
@@ -197,93 +248,670 @@ class AdoTextAnalyzer(object):
         #         language = detected_language
 
         if text!=self.text or self.readability is None or self.readability.return_grades!=return_grades:
-            self.doc = None
-            self.cefr = None
-            self.readability = None
-            self.catile = None
-            self.simplifier = None
-            self.adaptor = None
+            self.init()
             self.text = text
         if self.readability is None:
             self.readability = self.ReadabilityAnalyzer(self)
-            self.readability.return_grades = return_grades
-            self.readability.start_analyze(language)
+        self.readability.return_grades = return_grades
+        self.readability.start_analyze(language)
         if return_result:
             return self.readability.result
 
-    def analyze_catile(self,text,return_result=True):
+    def analyze_catile(self,text,return_result=True,v=1):
 
-        if detect(text.replace('\n',' '))['lang'] != 'en':
-            raise InformError("Language not supported. Please use English.")
+        # if detect(text.replace('\n',' '))['lang'] != 'en':
+        #     raise InformError("Language not supported. Please use English.")
             
         text = self.clean_text(text)
-        if text!=self.text:
-            self.doc = None
-            self.cefr = None
-            self.readability = None
-            self.catile = None
-            self.simplifier = None
-            self.adaptor = None
+        if self.v!=v or text!=self.text:
+            self.init()
+            self.v = v
             self.text = text
-        if self.catile is None:
-            if self.doc is None:
-                self.doc = nlp(self.text)
-                for x in self.doc:
-                    x = fine_lemmatize(x,self.doc,nlp)
-            self.catile = self.CatileAnalyzer(self)
+        if self.doc is None:
+            self.make_doc()
+        if v==1:
             self.catile.start_analyze()
+        else:
+            self.catile2.start_analyze()
+            self.catile.result = self.catile2.result
         if return_result:
             return self.catile.result
 
-    def simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False, return_result=True):
-        if self.openai_api_key is None:
-            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
-            return None
-        else:
-            openai.api_key = self.openai_api_key
-        text = self.clean_text(text)
-        self.doc = None
-        self.cefr = None
-        self.readability = None
-        self.catile = None
-        self.simplifier = None
-        self.adaptor = None
-        self.text = text
-
-        self.simplifier = self.CefrSimplifier(self)
-        self.simplifier.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=auto_retry, up=up)
-
-        if return_result:
-            return self.simplifier.result
-
-    def adapt(self, text, target_level, target_adjustment=0.5, even=False, by="paragraph", n=1, auto_retry=False, return_result=True):
-        if self.openai_api_key is None:
-            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
-            return None
-        else:
-            openai.api_key = self.openai_api_key
-        text = self.clean_text(text)
-        self.doc = None
-        self.cefr = None
-        self.readability = None
-        self.catile = None
-        self.simplifier = None
-        self.adaptor = None
-        self.text = text
-
-        self.t0 = time.time()
-        self.openai_time = 0
-
-        self.adaptor = self.CefrAdaptor(self)
-
-        self.adaptor.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=auto_retry)
-        print(f"Total time taken: OpenAI {self.openai_time} seconds, everything else {time.time()-self.t0-self.openai_time} seconds")
-
-        if return_result:
-            return self.adaptor.result
 
     def clean_text(self, text):
         return text.replace("\u00A0", " ").replace('\xa0',' ').strip()
+
+    class CatileAnalyzer2(object):
+
+        def __init__(self, outer):
+            self.shared_object = outer
+            self.result = None
+
+        def walk_tree(self, node, depth):
+            if node.n_lefts + node.n_rights > 0:
+                return max(self.walk_tree(child, depth + 1) for child in node.children)
+            else:
+                return depth
+
+        def get_noncompressibility(self, text):
+            def encode(text):
+                array = []
+                for i in range(len(text)):
+                    st = text[i:] + text[0:i]  # generating cyclic rotations
+                    array.append(st)
+                array.sort()  # sorting the cyclic rotations according to unicode values
+                bwt = ''
+                for i in range(len(array)):
+                    bwt += array[i][-1]
+                return bwt
+
+            def compress(string):
+                compressed = ""
+                count = 1
+                #Add in first character
+                if len(string):
+                    compressed += string[0]
+                    #Iterate through loop, skipping last one
+                    for i in range(len(string)-1):
+                        if(string[i] == string[i+1]):
+                            count+=1
+                        else:
+                            if(count > 1):
+                                #Ignore if no repeats
+                                compressed += str(count)
+                            compressed += string[i+1]
+                            count = 1
+                    #print last one
+                    if(count > 1):
+                        compressed += str(count)
+                return compressed
+            
+            if len(text):
+                return len(compress(encode(text)))/len(text)
+            else:
+                return 0
+
+        def lcs(self,strings):
+            substr = ''
+            if len(strings) > 1 and len(strings[0]) > 0:
+                for i in range(len(strings[0])):
+                    for j in range(len(strings[0])-i+1):
+                        if j > len(substr) and all(strings[0][i:i+j] in x for x in strings):
+                            substr = strings[0][i:i+j]
+            return len(substr)/max([len(x) for x in strings])
+
+        def high_avg(self, a, p=3):
+            if len(a) == 0:
+                return 0
+            a = np.array(a)
+            return np.mean(a**p)**(1/p)
+
+        def get_ability_2(self, data, ab_at_arr, n_bins = 'auto', n_iter = 1):
+            # sort the requested abilities
+            ab_at_arr = np.sort(ab_at_arr)
+            
+            # remove all zeros
+            data = np.array(data)
+            data = data[data != 0]
+
+            if str(n_bins) != 'auto':
+                h, data_hist = np.histogram(data, bins = n_bins, density=True)  
+            else:
+                h, data_hist = np.histogram(data, bins = 'auto', density=True)
+        
+            h_csum = np.cumsum(h)
+            h_csum_norm = h_csum / h_csum.max()
+
+            est_x = np.nanmean(data_hist)
+
+            init_vals = [1/est_x,est_x,0]
+            best_vals, covar = curve_fit(self.rasch_func, data_hist[0:-1], h_csum_norm, p0=init_vals)
+
+            ability = {}
+            
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', 'The iteration is not making good progress')
+                for ab_at in ab_at_arr:
+                    vals = list(best_vals)
+                    vals.append(ab_at)
+                    the_ab = fsolve(self.rasch_func_solve, [est_x], vals)
+                    ability[ab_at] = the_ab[0]
+
+            return ability
+
+        def get_ability_3(self, arr, ab_at):
+            # sort the requested abilities
+            ab_at = np.sort(ab_at)
+            
+            # remove all zeros
+            arr = np.array(arr)
+            arr = arr[arr != 0]
+            
+            n_bins = len(arr) * 2
+            
+            h, the_ab = np.histogram(arr, bins = n_bins, density=True)
+            h_csum = np.cumsum(h)
+            h_csum_norm = h_csum / h_csum.max()
+            
+            ability = {}
+            
+            end_point = len(h_csum_norm)
+            next_round_point = 0
+            for x in ab_at:
+                start_point = next_round_point
+                for y in range(start_point, end_point):
+                    next_round_point = y
+                    
+                    temp_ab = h_csum_norm[y]
+                    if temp_ab >= x:
+                        ability[x] = the_ab[y]
+                        break
+                
+                if next_round_point == end_point - 1:
+                    ability[x] = the_ab[next_round_point]
+            
+            return ability
+
+        def rasch_func(self, x, a, b, c):
+            return c + ((1-c) / (1+np.exp(np.float128(a*(b-x)))))
+
+        def rasch_func_solve(self, x, arr):
+            a = arr[0]
+            b = arr[1]
+            c = arr[2]
+            y = arr[3]
+            return c + ((1-c) / (1+np.exp(np.float128(a*(b-x))))) - y
+
+        def process_text(self):
+
+            #text = standardize_2(text)
+            doc = self.shared_object.doc
+            #run_time('nlp')
+            
+            # Split text
+            sent_groups = []
+            group = []
+            n_words_temp = 0
+            for sent in list(doc.sents):
+                if not (bool(re.search('[a-zA-Z]', sent.text)) and len(sent.text.strip())>1):
+                    continue
+                n_words_temp += text_stats.api.TextStats(sent).n_words
+                group.append(sent)
+                if n_words_temp>=125:
+                    sent_groups.append(group)
+                    group = []
+                    n_words_temp = 0
+                    
+            if len(group)>0:
+                if len(sent_groups)>0:
+                    sent_groups[-1] += group
+                else:
+                    sent_groups.append(group)
+            
+            # Levenshtein distance
+            lev_distance_list = []
+            sent_list = [sent.text.lower().strip(' ').strip('\n') for sent in list(doc.sents) if len(sent.text.strip(' ').strip('\n'))>1]
+            if len(sent_list) >= 2:
+                for i in range(1, len(sent_list)):
+                    lev_distance_list.append(lev.distance(sent_list[i-1],sent_list[i]))
+            else:
+                lev_distance_list.append(0)
+            #run_time('Levenshtein distance')
+            
+            dfs = []
+            dfs_all = []
+            dfs_500 = []
+            summaries = []
+            sent_depth_list = []
+            sent_length_list_all = []
+            n_sents = 0
+            
+            sent_length_list = []
+            sent_list = []
+            lcs2_list = []
+            lcs3_list = []
+            aoa_list = []
+            original_list = []
+            stop_list = []
+            pos_list = []
+            morph_list = []
+            lemma_list = []
+            dep_list = []
+            sent_index_list = []
+
+            freq_list = []
+            freq_list_no_stop = []
+            abstract_list = []
+            nsyl_list = []
+            
+            decode_lemma_list = []
+            decode_original_list = []
+            
+            n_words = 0
+            
+            longest_length = 0
+            longest_sent = ""
+            
+            for i_sent_group, sent_group in enumerate(sent_groups):
+                for sent in sent_group:
+                    n_sents += 1
+                    for x in sent:
+                        original_list.append(x.orth_)
+                        dep_list.append(x.dep_)
+                        pos_list.append(x.pos_)
+                        morph_list.append(nlp.explain(x.tag_))
+                        lemma_list.append(x.lemma_)
+                        if lemma_list[-1] in most_freq_50 or x.is_stop:
+                            stop_list.append(True)
+                        else:
+                            stop_list.append(False)
+
+                        # Frequency, AOA, ABSTRACTNESS
+                        am_lemma = br2am_dict.get(x.lemma_,x.lemma_)
+                        cefr = self.shared_object.cefr2.get_word_cefr(am_lemma, x.orth_.lower())
+                        if x.pos_ in {'PROPN','INTJ'}:
+                            freq_list.append(freq_dict_w_pos.get((am_lemma,x.pos_),freq_dict_wo_pos.get(am_lemma,1)))
+                            aoa_list.append(aoa_dict.get(x.lemma_,0))
+                            abstract_list.append(1-concreteness_dict.get(x.lemma_,1))
+                        else:
+                            freq_list.append(freq_dict_w_pos.get((am_lemma,x.pos_),freq_dict_wo_pos.get(am_lemma,1-cefr/6)))
+                            aoa_list.append(aoa_dict.get(x.lemma_,cefr/6))
+                            abstract_list.append(1-concreteness_dict.get(x.lemma_,1-cefr/6))
+
+                        if stop_list[-1]:
+                            freq_list_no_stop.append(0)
+                        else:
+                            freq_list_no_stop.append(freq_list[-1])
+
+                        # NUMBER OF SYLLABLES and DECODABILITY
+                        syllable_count = solar_word.count_syllables(original_list[-1].lower())
+                        nsyl_list.append(syllable_count)
+                        if syllable_count > 2:
+                            decode_lemma_list.append(9)
+                            decode_original_list.append(9)
+                        else:
+                            decode_lemma_list.append(solar_word.decoding_degree(lemma_list[-1].lower()))
+                            decode_original_list.append(solar_word.decoding_degree(original_list[-1].lower()))
+                        
+                        sent_index_list.append(n_sents-1)
+
+                    sent_depth_list.append(self.walk_tree(sent.root, 0))
+                    sent_list.append(x.sent.text.lower().strip())
+                    sent_length_list.append(solar_word.count_syllables(sent.text))
+
+                    length = text_stats.api.TextStats(sent).n_words
+                    if length>longest_length:
+                        longest_sent = sent.text.strip()
+                        longest_length = length
+                    n_words += length
+
+
+                df = pd.DataFrame({'original':original_list,
+                                'lemma':lemma_list,
+                                'frequency':freq_list,
+                                'aoa':aoa_list,
+                                'abstract':abstract_list,
+                                'nsyl': nsyl_list,
+                                'pos':pos_list,
+                                'dep':dep_list,
+                                'decode_lemma': decode_lemma_list,
+                                'decode_original': decode_original_list,
+                                'is_stop':stop_list,
+                                'sent_index':sent_index_list})
+                
+                noncompressibility = self.get_noncompressibility(' '.join(df['original'].values).replace('\n',' ').replace('  ',' ').strip())
+                        
+                df = df[(df['pos']!='SPACE')&(df['pos']!='PUNCT')]
+
+                tokens = df['lemma'].values
+                hdd = ld.hdd(tokens)
+                mtld = ld.mtld_ma_wrap(tokens)
+
+                if len(tokens):
+                    maas_ttr = ld.maas_ttr(tokens)
+                else:
+                    maas_ttr = 0
+
+
+                df_freq_type = df.drop_duplicates(['lemma','pos'])
+                mean_log_freq_type = np.mean(df_freq_type['frequency'])
+                df_freq_type_no_stop = df[~df['is_stop']].drop_duplicates(['lemma','pos'])
+                mean_log_freq_type_no_stop = np.mean(df_freq_type_no_stop['frequency'])
+                mean_log_freq_token = np.mean(df['frequency'])
+                df_freq_token_no_stop = df[~df['is_stop']]
+                mean_log_freq_token_no_stop = np.mean(df_freq_token_no_stop['frequency'])
+                        
+                # Longest common string
+                for i in range(len(sent_list)):
+                    couplet = sent_list[i:min(i+2,len(sent_list))]
+                    triplet = sent_list[i:min(i+3,len(sent_list))]
+                    if len(couplet) == 2:
+                        lcs2_list.append(self.lcs(couplet))
+                    if len(triplet) == 3:
+                        lcs3_list.append(self.lcs(triplet))
+
+                if len(lcs2_list) == 0:
+                    lcs2_list = [0]
+                if len(lcs3_list) == 0:
+                    lcs3_list = [0]
+                
+                summary = pd.Series({'mean_length':np.nanmean(sent_length_list),
+                                    'mean_log_freq_type':mean_log_freq_type,
+                                    'mean_log_freq_type_no_stop':mean_log_freq_type_no_stop,
+                                    'mean_log_freq_token':mean_log_freq_token,
+                                    'mean_log_freq_token_no_stop':mean_log_freq_token_no_stop,
+                                    'maas_ttr':maas_ttr,
+                                    'hdd':hdd,
+                                    'mtld':mtld,
+                                    'mean_lev_distance':np.nanmean(lev_distance_list),
+                                    'mean_lcs2':np.nanmean(lcs2_list),
+                                    'mean_lcs3':np.nanmean(lcs3_list),
+                                    'noncompressibility':noncompressibility})
+                summary.name = 'counts'
+
+                dfs.append(df)
+                if n_words>=500:
+                    dfs_500.append(pd.concat(dfs))
+                    dfs = []
+                dfs_all.append(df)
+                summaries.append(summary)
+
+                sent_length_list_all += sent_length_list
+
+                sent_length_list = []
+                sent_list = []
+                lcs2_list = []
+                lcs3_list = []
+                aoa_list = []
+                original_list = []
+                stop_list = []
+                pos_list = []
+                morph_list = []
+                lemma_list = []
+                dep_list = []
+                freq_list = []
+                sent_index_list = []
+                freq_list = []
+                freq_list_no_stop = []
+                abstract_list = []
+                nsyl_list = []
+                decode_lemma_list = []
+                decode_original_list = []
+
+            df_data = pd.concat(dfs_all)
+            if len(dfs)>0:
+                if n_words>=250:
+                    dfs_500.append(pd.concat(dfs))
+                else:
+                    if len(dfs_500)>0:
+                        dfs_500[-1] = pd.concat([dfs_500[-1],pd.concat(dfs)])
+                    else:
+                        dfs_500.append(pd.concat(dfs))
+                
+            density_list = []
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                if len(dfs_500)>0:
+                    for df_500 in dfs_500:
+                        df_500 = df_500[~df_500['is_stop']]
+                        vectorizer = TfidfVectorizer(smooth_idf=True)
+                        X = vectorizer.fit_transform([' '.join(x[1]['lemma'].values.astype(str)) for x in df_500.groupby('sent_index')])
+                        
+                        if len(df_500['lemma'].unique()) > 1:
+                            svd_model = TruncatedSVD(n_components=min(X.shape[1]-1,min(len(df_500['lemma'].unique())-1,10)), algorithm='randomized', n_iter=100, random_state=0)
+                            svd_model.fit(X)
+                            density_list.append(svd_model.explained_variance_ratio_.max())
+            density_list = [x for x in density_list if not np.isnan(x)]
+
+            summary = pd.concat([pd.Series({'std_length':np.std(sent_length_list_all),
+                                            'high_mean_length': self.high_avg(sent_length_list_all),
+                                            'mean_depth':np.nanmean(sent_depth_list),
+                                            'std_depth':np.std(sent_depth_list),
+                                            'density':np.mean(density_list) if len(density_list) else 0}),
+                                sum(summaries)/len(summaries)]).sort_index()
+            
+            # Mean syllable count
+            df_data2 = df_data.copy()
+            df_data2['original'] = df_data2['original'].apply(lambda x: x.lower())
+            
+            nsyl_clean_list = df_data2[df_data2['nsyl'] != 0].drop_duplicates('original')['nsyl'].tolist()
+            summary['nsyl_mean'] = np.nanmean(nsyl_clean_list)
+            
+            # High mean of the syllable count
+            summary['nsyl_high_mean'] = self.high_avg(nsyl_clean_list)
+            
+            # Decoding Demand
+            summary['decode_lemma'] = np.nanmean(df_data['decode_lemma'].tolist())
+            summary['decode_original'] = np.nanmean(df_data['decode_original'].tolist())
+            
+            abstract_score_list = df_data['abstract'].tolist()
+            
+            if len(abstract_score_list) == 0:
+                summary['abstract_mean'] = 0
+                summary['abstract_high_mean'] = 0
+            else:
+                summary['abstract_mean'] = np.nanmean(abstract_score_list)
+                summary['abstract_high_mean'] = self.high_avg(abstract_score_list)
+
+            # RASCH MODEL ABILIES AT X%
+            ability_at = [0.5, 0.7, 0.9]
+            
+            aoa_clean_list = df_data['aoa'].tolist()
+            
+            if len(aoa_clean_list) == 0:
+                summary['aoa_mean'] = 0
+                summary['aoa_high_mean'] = 0
+                for a in ability_at:
+                    summary['aoa_' + str(int(a*100))] = 0
+            else:
+                summary['aoa_mean'] = np.nanmean(aoa_clean_list)
+                summary['aoa_high_mean'] = self.high_avg(aoa_clean_list)
+                
+                try:
+                    aoa_ability = self.get_ability_2(aoa_clean_list, ability_at)
+                    for a in ability_at:
+                        summary['aoa_' + str(int(a*100))] = aoa_ability[a]
+                except:
+                    for a in ability_at:
+                        a *= int(100)
+                        summary[f'aoa_{a}'] = np.percentile(aoa_clean_list, a)
+            
+            if len(df_data) == 0:
+                summary['freq_mean'] = 0
+                summary['freq_high_mean'] = 0
+                for a in ability_at:
+                    summary['freq_' + str(int(a*100))] = 0
+            else:
+                rareness_clean_list = (1-df_data['frequency']).tolist()
+                # summary['freq_mean'] = np.nanmean(rareness_clean_list)
+                # summary['freq_high_mean'] = self.high_avg(rareness_clean_list)
+
+                try:
+                    freq_ability = self.get_ability_2(rareness_clean_list, ability_at)
+                    for a in ability_at:
+                        summary['freq_' + str(int(a*100))] = freq_ability[a]
+                except:
+                    for a in ability_at:
+                        a *= int(100)
+                        summary[f'freq_{a}'] = np.percentile(rareness_clean_list, a)
+
+            pos_count = df_data['pos'].value_counts().to_dict()
+            total = sum([v for k,v in pos_count.items() if k not in {'SPACE','PUNCT'}])
+            n_sents = len(df_data.sent_index.unique())
+            summary['adj'] = pos_count.get('ADJ',0)/n_sents
+            summary['adv'] = pos_count.get('ADV',0)/n_sents
+            summary['pron'] = pos_count.get('PRON',0)/n_sents
+            summary['n'] = pos_count.get('NOUN',0)/n_sents
+            summary['v'] = (pos_count.get('VERB',0)+pos_count.get('PROPN',0))/n_sents
+            summary['n_words'] = total
+            summary['n_sents'] = n_sents
+            summary = summary.fillna(0).infer_objects(copy=False)
+            
+            return df_data, summary, longest_sent
+
+        def predict(self, summary):
+            selected = ['density', 'hdd', 'high_mean_length', 'maas_ttr', 'mean_depth',
+                        'mean_lcs2', 'mean_lcs3', 'mean_length', 'mean_lev_distance',
+                        'mean_log_freq_token', 'mean_log_freq_token_no_stop',
+                        'mean_log_freq_type', 'mean_log_freq_type_no_stop', 'mtld',
+                        'noncompressibility', 'std_depth', 'std_length', 'nsyl_mean',
+                        'nsyl_high_mean', 'decode_lemma', 'decode_original', 'abstract_mean',
+                        'abstract_high_mean', 'aoa_mean', 'aoa_high_mean', 'aoa_50.0',
+                        'aoa_70.0', 'aoa_90.0', 'freq_50.0', 'freq_70.0', 'freq_90.0', 'adj',
+                        'adv', 'pron', 'n', 'v']
+            x = summary[selected].values
+
+            y_pred = neural_model2.predict(x.reshape(1,-1),verbose=0)[0][0]
+            if y_pred>1200:
+                y_pred = linear_model2.predict([x])[0]
+            return y_pred
+
+        def get_age_grade(self, score):
+            tree = {
+                1: {"age": "6-7", "min": 5, "max": 365},
+                2: {"age": "7-8", "min": 245, "max": 605},
+                3: {"age": "8-9", "min": 480, "max": 810},
+                4: {"age": "9-10", "min": 700, "max": 1005},
+                5: {"age": "10-11", "min": 795, "max": 1100},
+                6: {"age": "11-12", "min": 875, "max": 1180},
+                7: {"age": "12-13", "min": 940, "max": 1250},
+                8: {"age": "13-14", "min": 1000, "max": 1310},
+                9: {"age": "14-15", "min": 1050, "max": 1360},
+                10: {"age": "15-16", "min": 1095, "max": 1410},
+                11: {"age": "16-17", "min": 1140, "max": 1450},
+                12: {"age": "17-18", "min": 1140, "max": 1450},
+            }
+
+            age_arr = []
+            grade_arr = []
+
+            for k, v in tree.items():
+                if v.get("min") < score < v.get("max"):
+                    age_arr.append(v.get("age"))
+                    grade_arr.append(k)
+            return age_arr, grade_arr
+
+        def decoding_score(self,decode_original, nsyl_mean):
+            
+            def decode_original_score(decode_original):
+                score = decode_original*65.39133259-283.6882894370211
+                return min(max(0,score),100)
+            
+            def nsyl_mean_score(nsyl_mean):
+                score = nsyl_mean*99.85680598-115.78580562563019
+                return min(max(0,score),100)
+
+            return round((decode_original_score(decode_original)+nsyl_mean_score(nsyl_mean))/2)
+
+        def vocabulary_score(self,aoa_mean, abstract_mean):
+            def aoa_mean_score(aoa_mean):
+                score = aoa_mean*892.71956214-97.75377982567898
+                return min(max(0,score),100)
+
+            def abstract_mean_score(abstract_mean):
+                score = abstract_mean*507.3187022066814-216.68550802262394
+                return min(max(0,score),100)
+
+            return round((aoa_mean_score(aoa_mean)+abstract_mean_score(abstract_mean))/2)
+
+        def sentences_score(self,mean_length,mean_lev_distance,mean_lcs2,mean_lcs3):
+            def mean_length_score(mean_length):
+                if mean_length<=10.10957323579106:
+                    score = mean_length*6.327764402396921-30.907628775917466
+                else:
+                    score = mean_length*1.6111335335070158+20.334566597896405
+                return min(max(0,score),100)
+                
+            def mean_lev_distance_score(mean_lev_distance):
+                if mean_lev_distance<=35.361661682477596:
+                    score = mean_lev_distance*1.1268500723996848-8.888730667142777
+                else:
+                    score = mean_lev_distance*0.4887343674123663+18.879299145806463
+                return min(max(0,score),100)
+                
+            def mean_lcs2_score(mean_lcs2):
+                if mean_lcs2>=0.13108869661396375:
+                    score = -mean_lcs2*61.60541610543943+30.508087957115094
+                else:
+                    score = -mean_lcs2*930.0869518370125+134.71343549058005
+                return min(max(0,score),100)
+
+            def mean_lcs3_score(mean_lcs3):
+                if mean_lcs3>=0.06996621013558413:
+                    score = -mean_lcs3*55.94615995985709+25.675220044474045
+                else:
+                    score = -mean_lcs3*1834.988672752836+138.92626227564108
+                return min(max(0,score),100)
+
+            return round((mean_length_score(mean_length)+mean_lev_distance_score(mean_lev_distance)+mean_lcs2_score(mean_lcs2)+mean_lcs3_score(mean_lcs3))/4)
+
+        def pattern_score(self, mtld, hdd, maas_ttr):
+            def mtld_score(mtld):
+                if mtld<=39.028965941459376:
+                    score = mtld*1.2029939831310108-10.331639374848105
+                else:
+                    score = mtld*2.022225630558942-59.9106423293764
+                return min(max(0,score),100)
+
+            def hdd_score(hdd):
+                if hdd<=0.7346020755811701:
+                    score = hdd*41.1402686901111-5.870845601305838
+                else:
+                    score = hdd*953.1471630414901-698.6406673192134
+                return min(max(0,score),100)
+
+            def maas_ttr_score(maas_ttr):
+                if maas_ttr>=0.062039455292699344:
+                    score = -maas_ttr*230.81562229283628+39.401885259002086
+                else:
+                    score = -maas_ttr*3380.355700350255+220.0842881252814
+                return min(max(0,score),100)
+                
+            return round((mtld_score(mtld)+hdd_score(hdd)+maas_ttr_score(maas_ttr))/3)
+
+        def start_analyze(self):
+            df, summary, longest_sentence = self.process_text()
+
+            count_lemmas = df.pivot_table(index=['lemma', 'pos'], aggfunc='size')
+            
+            word_pos = count_lemmas.index.tolist()
+            word_count = count_lemmas.values.tolist()
+            word_count = sum(word_count)
+
+            #pred_lexile = predict(summary, neural_model, transformer, kde_model, outlier_ranges)
+            pred_lexile = self.predict(summary)
+
+            mean_sent_length = round(word_count/summary['n_sents'],2)
+
+            scores = {
+                "catile": round(pred_lexile),
+                "decoding": self.decoding_score(summary['decode_original'], summary['nsyl_mean']),
+                "vocabulary": self.vocabulary_score(summary['aoa_mean'], summary['abstract_mean']),
+                "sentences": self.sentences_score(summary['mean_length'], summary['mean_lev_distance'], summary['mean_lcs2'], summary['mean_lcs3']),
+                "patterns": self.pattern_score(summary['mtld'], summary['hdd'], summary['maas_ttr']),
+            }
+
+            #return scores
+
+            df_data = df.merge(df.pivot_table(index=['lemma'], aggfunc='size').to_frame(name='lemma_frequency').reset_index(),on='lemma',how='left')
+            df_data = df_data[~df_data['is_stop']&df_data['pos'].apply(lambda x: x not in {'X','PROPN','AUX','PART'})].drop_duplicates('lemma')
+            df_data = df_data[df_data['lemma'].apply(lambda x:len(x)>=2) & ~((df_data['pos']=='NUM')&(df_data['frequency']<=0))]
+            #most_frequent = df_data.sort_values(['lemma_frequency','frequency','aoa','nsyl','decode_lemma'],ascending=[False,True,False,False,False]).head()['lemma'].values
+            difficult_words = df_data.sort_values(['frequency','aoa','lemma_frequency','nsyl','decode_lemma'],ascending=[True,False,False,False,False]).head(10)['lemma'].values
+            
+            age, grade = self.get_age_grade(pred_lexile)
+
+            self.result = {
+                "scores": scores,
+                "difficult_words": difficult_words, 
+                "longest_sentence": longest_sentence,
+                "mean_sent_length": mean_sent_length,
+                "word_count": word_count,
+                "age": age,
+                "grade": grade
+            }
+
 
     class CatileAnalyzer(object):
 
@@ -368,7 +996,8 @@ class AdoTextAnalyzer(object):
             ab_at_arr = np.sort(ab_at_arr)
             
             # remove all zeros
-            data = [i for i in data if i != 0]
+            data = np.array(data)
+            data = data[data != 0]
 
             if str(n_bins) != 'auto':
                 h, data_hist = np.histogram(data, bins = n_bins, density=True)  
@@ -380,7 +1009,7 @@ class AdoTextAnalyzer(object):
 
             est_x = np.nanmean(data_hist)
 
-            init_vals = [1,est_x,0]
+            init_vals = [1/est_x,est_x,0]
             best_vals, covar = curve_fit(self.rasch_func, data_hist[0:-1], h_csum_norm, p0=init_vals)
 
             ability = {}
@@ -400,7 +1029,8 @@ class AdoTextAnalyzer(object):
             ab_at = np.sort(ab_at)
             
             # remove all zeros
-            arr = [i for i in arr if i != 0]
+            arr = np.array(arr)
+            arr = arr[arr != 0]
             
             n_bins = len(arr) * 2
             
@@ -428,14 +1058,14 @@ class AdoTextAnalyzer(object):
             return ability
 
         def rasch_func(self, x, a, b, c):
-            return c + ((1-c) / (1+np.exp(a*(b-x))))
+            return c + ((1-c) / (1+np.exp(np.float128(a*(b-x)))))
 
         def rasch_func_solve(self, x, arr):
             a = arr[0]
             b = arr[1]
             c = arr[2]
             y = arr[3]
-            return c + ((1-c) / (1+np.exp(a*(b-x)))) - y
+            return c + ((1-c) / (1+np.exp(np.float128(a*(b-x))))) - y
 
         def process_text(self):
 
@@ -846,7 +1476,7 @@ class AdoTextAnalyzer(object):
 
 
             summary['n_sents'] = len(df_data.sent_index.unique())
-            summary = summary.fillna(0)
+            summary = summary.fillna(0).infer_objects(copy=False)
             
             return df_data, summary, longest_sent
 
@@ -854,7 +1484,7 @@ class AdoTextAnalyzer(object):
             x = summary[['density','hdd','high_mean_length','maas_ttr','mean_depth','mean_lcs2','mean_lcs3','mean_length','mean_lev_distance','mean_log_freq_token','mean_log_freq_token_no_stop','mean_log_freq_type',
                         'mean_log_freq_type_no_stop','mtld','noncompressibility','std_depth','std_length','nsyl_mean','nsyl_high_mean','decode_original','decode_lemma','abstract_mean','abstract_high_mean','aoa_mean','aoa_high_mean']].values
 
-            y_pred = neural_model.predict(x.reshape(1,-1))[0][0]
+            y_pred = neural_model.predict(x.reshape(1,-1),verbose=0)[0][0]
             if y_pred>1200:
                 y_pred = linear_model.predict([x])[0]
             return y_pred
@@ -945,7 +1575,7 @@ class AdoTextAnalyzer(object):
             mean_sent_length = round(word_count/summary['n_sents'],2)
 
             scores = {
-                "catile": pred_lexile,
+                "catile": round(pred_lexile),
                 "decoding": decoding,
                 "vocabulary": vocabulary,
                 "sentences": sentences,
@@ -974,7 +1604,1790 @@ class AdoTextAnalyzer(object):
                 "grade": grade
             }
 
-    class CefrAnalyzer(object):
+
+    class CEFRAnalyzer2(object):
+
+        def __init__(self,outer):
+            self.shared_object = outer
+
+            self.settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
+            self.outputs=['final_levels']
+            
+
+            self.tense_level_dict = {('unbound modal verbs', 'fin.'):0,
+                    ('do', 'inf.'):0,
+                    ('do', 'imp.'):0,
+                    ('do', 'ind. (present)'):0,
+                    ('do', 'ind. (past)'):0.5,
+                    ('be doing', 'ind. (present)'):0.5,
+                    ('have done', 'ind. (present)'):1,
+                    ('be doing', 'ind. (past)'):1.5,
+                    ('be done', 'inf.'):2,
+                    ('be done', 'ind. (present)'):2,
+                    ('be done', 'ind. (past)'):2,
+                    ('have done', 'ind. (past)'):2,
+                    ('have been doing', 'ind. (present)'):2.5,
+                    ('have been done', 'ind. (present)'):2.5,
+                    ('be being done', 'ind. (present)'):2.5,
+                    ('do', 'ger.'):1,
+                    ('do', 'part. (past)'):2,
+                    ('be done', 'ger.'):2.5,
+                    ('be doing', 'inf.'):3,
+                    ('have done', 'inf.'):3,
+                    ('have been doing', 'ind. (past)'):3.5,
+                    ('have been done', 'ind. (past)'):3.5,
+                    ('be being done', 'ind. (past)'):3.5,
+                    ('have been done', 'inf.'):4,
+                    ('have done', 'ger.'):4,
+                    ('have been doing', 'inf.'):4.5,
+                    ('have been doing', 'ger.'):5,
+                    ('have been done', 'ger.'):5}
+
+            self.tense_name_dict = {('unbound modal verbs', 'fin.'):'Unbound modal verb',
+                    ('do', 'inf.'):'Infinitive',
+                    ('do', 'imp.'):'Imperative',
+                    ('do', 'ind. (present)'):'Present simple',
+                    ('do', 'ind. (past)'):'Past simple',
+                    ('be doing', 'ind. (present)'):'Present continuous',
+                    ('have done', 'ind. (present)'):'Present perfect',
+                    ('be doing', 'ind. (past)'):'Past continuous',
+                    ('be done', 'inf.'):'Infinitive passive',
+                    ('be done', 'ind. (present)'):'Present simple passive',
+                    ('be done', 'ind. (past)'):'Past simple passive',
+                    ('have done', 'ind. (past)'):'Past perfect',
+                    ('have been doing', 'ind. (present)'):'Present perfect continuous',
+                    ('have been done', 'ind. (present)'):'Present perfect passive',
+                    ('be being done', 'ind. (present)'):'Present continuous passive',
+                    ('do', 'ger.'):'Gerund simple',
+                    ('do', 'part. (past)'):'Past participle simple',
+                    ('be done', 'ger.'):'Gerund simple passive',
+                    ('be doing', 'inf.'):'Infinitive continuous',
+                    ('have done', 'inf.'):'Infinitive perfect',
+                    ('have been doing', 'ind. (past)'):'Past perfect continuous',
+                    ('have been done', 'ind. (past)'):'Past perfect passive',
+                    ('be being done', 'ind. (past)'):'Past continuous passive',
+                    ('have been done', 'inf.'):'Infinitive perfect passive',
+                    ('have done', 'ger.'):'Gerund perfect',
+                    ('have been doing', 'inf.'):'Infinitive perfect continuous',
+                    ('have been doing', 'ger.'):'Gerund perfect continuous',
+                    ('have been done', 'ger.'):'Gerund perfect passive'}
+
+            self.result = None
+            self.embeddings = {}
+
+        def get_word_cefr(self,word_lemma,word_orth="",cefr_w_pos_prim=cefr_w_pos_min_prim,cefr_wo_pos_prim=cefr_wo_pos_min_prim):
+            if word_orth=="":
+                word_orth = word_lemma
+            level = cefr_w_pos_prim.get(word_lemma,6)
+            if level == 6:
+                level = cefr_w_pos.get(word_lemma,6)
+                if level == 6:
+                    level = max(2,cefr_w_pos_sup.get(word_lemma,6))
+                    if level == 6:
+                        level = cefr_w_pos_prim.get(word_orth,6)
+                        if level == 6:
+                            level = cefr_w_pos.get(word_orth,6)
+                            if level == 6:
+                                level = max(2,cefr_w_pos_sup.get(word_orth,6))
+                                if level == 6:
+                                    level = cefr_wo_pos_prim.get(word_lemma[0],6)
+                                    if level == 6:
+                                        level = cefr_wo_pos.get(word_lemma[0],6)
+                                        if level == 6:
+                                            level = max(2,cefr_wo_pos_sup.get(word_orth[0],6))
+            return level
+
+        def get_phrase(self, phrase, phrase_pos, phrase_dep, sentence, sentence_start_index, followed_by, window_size=3):
+
+            confidence = length = len(phrase)
+            ambiguous = False
+            sm = edit_distance.SequenceMatcher(a=phrase, b=sentence, action_function=edit_distance.highest_match_action)
+            opcodes = sm.get_opcodes()
+            filter_ = []
+            for opcode in opcodes:
+                if opcode[0] == 'replace':
+                    if not (phrase_pos[opcode[1]]==self.shared_object.doc[opcode[3]+sentence_start_index].pos_ and phrase_pos[opcode[1]] in set(['PRON','DET'])):
+                        return None, 0, ambiguous
+                    else:
+                        filter_.append(True)
+                    if any([x in set(['oneself','yourself']) for x in phrase[opcode[1]]]) and any([x.endswith('self') or x.endswith('selves') for x in set(sentence[opcode[3]])]):
+                        confidence += 0.5
+                    confidence -= 1
+                elif opcode[0] == 'equal':
+                    filter_.append(True)
+                    pos_original = phrase_pos[opcode[1]]
+                    pos_in_sent = self.shared_object.doc[opcode[3]+sentence_start_index].pos_
+                    if pos_original!=pos_in_sent and not (pos_original=='ADP' and pos_in_sent=='ADV' or 
+                                                          pos_original=='ADV' and pos_in_sent=='ADP' or 
+                                                          pos_original=="PROPN" or 
+                                                          pos_in_sent=="PROPN"):
+                        confidence -= 1
+
+                    #if pos_original==pos_in_sent=="VERB" and len(set(sentence[opcode[3]])-set(phrase[opcode[1]]))>0:
+                    #    if opcode[1]==0 and len(set(phrase[opcode[1]]))-len(set(sentence[opcode[3]]))>0 or opcode[1]>=1 and opcode[3]>1 and 'be' in phrase[opcode[1]-1]+sentence[opcode[3]-1]:
+                    #        confidence -= 1
+                else:
+                    filter_.append(False)
+            
+            
+            matching_blocks = np.array(opcodes)[filter_][:,[1,3]].astype(int)
+            
+            operations = np.array(opcodes).T[0]
+            operations_count = Counter(operations)
+
+            if operations_count['equal']+operations_count['replace']!=length or operations_count['equal']<=length/2 or 'delete' in operations_count:
+                return None, 0, ambiguous
+            
+            for i in range(1,len(matching_blocks)):
+                word_in_sentence = self.shared_object.doc[matching_blocks[i][1]+sentence_start_index]
+                if word_in_sentence.pos_ in set(["ADP","ADV"]) and phrase_dep is not None and phrase_dep[matching_blocks[i][0]]=='prt' and word_in_sentence.dep_!='prt':
+                    ambiguous = True
+
+                n_insertions = matching_blocks[i][1]-matching_blocks[i-1][1]-1
+                if followed_by[i-1]=="0":
+                    if opcodes[matching_blocks[i][1]-1][0] not in set(['equal','replace']):
+                        return None, 0, ambiguous
+                else:
+                    if self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index].pos_=="VERB":
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.tag_ in set(['RP','IN']):
+                                return None, 0, ambiguous
+                    if followed_by[i-1]=="1":
+                        if n_insertions!=1:
+                            confidence -= abs(1-n_insertions)
+                    elif followed_by[i-1]==",":
+                        if n_insertions>1:
+                            confidence -= abs(1-n_insertions)
+                        elif n_insertions==1 and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].pos_ != 'PUNCT':
+                            return None, 0, ambiguous
+                    elif followed_by[i-1] in set(['p','t']):
+                        person = False
+                        thing = True
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_=="PRON":
+                                if x.orth_.lower() == 'them':
+                                    person = True
+                                    break
+                                elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
+                                    thing = False
+                                    person = True
+                                    break
+                            elif x.pos_=='NOUN':
+                                if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
+                                    thing = False
+                                    person = True
+                                    break
+                            elif x.head.pos_=='NOUN' and matching_blocks[i-1][1]+sentence_start_index+1<x.head.i<matching_blocks[i][1]+sentence_start_index:
+                                if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
+                                    thing = False
+                                    person = True
+                                    break
+                        if followed_by[i-1]=='p' and not person:
+                            confidence -= 1
+                        elif followed_by[i-1]=='t' and not thing:
+                            confidence -= 0.5
+                    elif followed_by[i-1]=="a":
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_ in set(['VERB','AUX']):
+                                return None, 0, ambiguous
+                        if n_insertions==0:
+                            confidence -= 1
+                        elif n_insertions==1 and self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ == 'DET':
+                            return None, 0, ambiguous
+                    elif followed_by[i-1]=="s":
+                        is_possessive = False
+                        for x in self.shared_object.doc[matching_blocks[i-1][1]+sentence_start_index+1:matching_blocks[i][1]+sentence_start_index]:
+                            if x.pos_ in set(['VERB','AUX']):
+                                return None, 0, ambiguous
+                            elif x.lemma_ in set(["'s", "'", "my", "your", "his", "her", "our", "their"]):
+                                is_possessive = True
+                                break
+                        if not is_possessive:
+                            confidence -= 1
+                    elif followed_by[i-1]=="n":
+                        if self.shared_object.doc[matching_blocks[i-1][1]+1+sentence_start_index].pos_ != 'NUM':
+                            confidence -= 1
+
+                if n_insertions==0 and followed_by[i-1] in set(['a','p','t']) and self.shared_object.doc[matching_blocks[i][1]-1+sentence_start_index].tag_!='VBN':
+                    confidence -= 1
+                if n_insertions>window_size:
+                    confidence -= n_insertions-window_size
+            
+            if confidence<=0:
+                return None, 0, ambiguous
+            
+            span = list(np.array(matching_blocks)[:,1])
+
+            phrase_start_index = span[0]+sentence_start_index
+            phrase_end_index = span[-1]+sentence_start_index
+            followed_by_something = phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i and self.shared_object.doc[phrase_end_index+1].lemma_.isalnum() and not (self.shared_object.doc[phrase_end_index+1].tag_=='CC' and set(phrase_pos).intersection(set(['VERB','AUX'])))
+            if followed_by[-1]=='0':
+                if followed_by_something:
+                    confidence -= 1
+            else:
+                if followed_by[-1]!='a' and not followed_by_something and self.shared_object.doc[phrase_start_index].tag_!='VBN' and self.shared_object.doc[max(0,phrase_start_index-1)].lemma_!='to':
+                    confidence -= 1
+                if followed_by[-1] in set(['p','t']):
+                    followed_by_person = False
+                    followed_by_thing = True
+                    if phrase_end_index<self.shared_object.doc[phrase_end_index].sent[-1].i:
+                        x = self.shared_object.doc[phrase_end_index+1]
+                        if x.pos_=="PRON":
+                            if x.orth_.lower()=='them':
+                                followed_by_person = True
+                            elif x.orth_.lower() in set(['me','you','him','her','we','everyone','everybody','someone','somebody','anyone','anybody','one','nobody']) or x.orth_.lower().endswith('self'):
+                                followed_by_thing = False
+                                followed_by_person = True
+                        elif x.pos_=='NOUN':
+                            if len(set([x.lemma_,x.orth_]).intersection(people_list))>0:
+                                followed_by_thing = False
+                                followed_by_person = True
+                        elif x.head.pos_=='NOUN' and phrase_end_index<x.head.i:
+                            if len(set([x.head.lemma_,x.head.orth_]).intersection(people_list))>0:
+                                followed_by_thing = False
+                                followed_by_person = True
+                    if followed_by[-1]=='p' and not followed_by_person:
+                        confidence -= 1
+                    elif followed_by[-1]=='t' and not followed_by_thing:
+                        confidence -= 0.5
+                elif followed_by[-1]=='n':
+                    if phrase_end_index<len(self.shared_object.doc)-1 and self.shared_object.doc[phrase_end_index+1].pos_!='NUM':
+                        confidence -= 1
+
+            if confidence<=0:
+                return None, 0, ambiguous
+
+            return span, confidence/len(phrase), ambiguous
+
+        def get_sentence_parts(self, x, followed_by, window_size=3):
+            followed_by = followed_by.split('_')[0]
+            phrase_length = len(followed_by)+1+followed_by.count('1')+followed_by.count('2')+(followed_by.count('3')+followed_by.count('4'))*window_size
+            sentence_parts = []
+            start_index = max(x.sent[0].i, x.i-phrase_length)
+            end_index = min(x.i+phrase_length, x.sent[-1].i)
+            for i in range(start_index,end_index+1):
+                if self.shared_object.doc[i].lemma_=='not':
+                    sentence_parts.append(['not','never','hardly','barely'])
+                elif self.shared_object.doc[i].lemma_ in set(['can','could']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['can','could'])
+                elif self.shared_object.doc[i].lemma_ in set(['will','would']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['will','would'])
+                elif self.shared_object.doc[i].lemma_ in set(['may','might']) and self.shared_object.doc[i].pos_=='AUX':
+                    sentence_parts.append(['may','might'])
+                elif (self.shared_object.doc[i].lemma_.endswith('self') or self.shared_object.doc[i].lemma_.endswith('selves')) and self.shared_object.doc[i].lemma_!='self':
+                    sentence_parts.append([self.shared_object.doc[i].lemma_, self.shared_object.doc[i].orth_.lower(), 'oneself'])
+                else:
+                    sentence_parts.append([self.shared_object.doc[i].lemma_, self.shared_object.doc[i].orth_.lower()])
+            return sentence_parts, start_index
+
+        def get_verb_form(self,x):
+            tense = []
+            id_range = []
+
+            if x.orth_.lower() == 'being' and str(x.morph)=='VerbForm=Ger' and self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_!='VERB':
+                tense.append('being')
+            elif x.head == x or x.dep_ == 'ROOT' or x.dep_ not in set(['aux','auxpass']):
+                tense, id_range = self.get_aux(x)
+                if len(tense) == 0 and x.dep_=='conj':
+                    first_verb = x.head
+                    while first_verb.dep_=='conj':
+                        first_verb = first_verb.head
+                    tense, id_range = self.get_aux(first_verb)
+
+                if 'Aspect=Perf' in x.morph or (self.shared_object.doc[max(0,x.i-1)].lemma_=='have' and self.shared_object.doc[max(0,x.i-1)].pos_=='AUX' or self.shared_object.doc[max(0,x.i-2)].lemma_ == 'have' and self.shared_object.doc[max(0,x.i-2)].pos_=='AUX') and 'VerbForm=Fin' in x.morph and 'Tense=Past' in x.morph:
+                    tense.append('done')
+                elif ('Mood=Ind' in x.morph or 'VerbForm=Ger' in x.morph or 'Tense=Past' in x.morph and 'VerbForm=Part' in x.morph) and x.lemma_ in set(['be','have']):
+                    if x.orth_.startswith("'") or x.orth_.startswith("’"):
+                        tense.append(self.expand_contraction(x))
+                    else:
+                        tense.append(x.orth_.lower())
+                elif 'VerbForm=Fin' in x.morph:
+                    if self.shared_object.doc[max(0,x.i-1)].lemma_=='to' or self.shared_object.doc[max(0,x.i-2)].lemma_=='to':
+                        tense.append('do')
+                    elif 'Tense=Past' in x.morph:
+                        tense.append('did')
+                    elif 'Tense=Pres' in x.morph:
+                        if 'Person=3' in x.morph:
+                            tense.append('does')
+                        else:
+                            tense.append('do')
+                    else:
+                        tense.append(x.lemma_)
+                elif 'Aspect=Prog' in x.morph:
+                    tense.append('doing')
+                elif 'VerbType=Mod' in x.morph:
+                    tense.append(x.lemma_)
+                elif 'VerbForm=Inf' in x.morph:
+                    tense.append('do')
+                
+            if len(tense)==0:
+                return None, None
+            else:
+                if len(set(tense))!=len(tense):
+                    new_tense = [tense[0]]
+                    for t in np.array(tense)[1:]:
+                        if t != new_tense[-1] or t=='do':
+                            new_tense.append(t)
+                    tense = new_tense
+                      
+                tense = ' '.join(tense).replace("have been","have bEEn").replace("has been","has bEEn").replace("had been","had bEEn").replace('got ta','gotta').replace('gon na','gonna').replace(
+                    "have be","have been").replace("has be","has been").replace("had be","had been").lower()
+                
+                if tense.endswith('ca'):
+                    tense = tense.replace('ca','can')
+                elif tense.endswith('wo'):
+                    tense = tense.replace('wo','will')
+                elif tense.endswith('sha'):
+                    tense = tense.replace('sha','shall')
+                elif tense.endswith('ai'):
+                    tense = tense.replace('ai',"ain't")
+                    
+                tense = tense.replace('ca ','can ').replace('wo ','will ').replace('sha ','shall ').replace('ai ',"ain't ")
+                
+                # Fix some form errors with "have"
+                if tense in set(['has','have','had']) and (
+                    (self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].lemma_ == 'to' and self.shared_object.doc[min(x.i+2,len(self.shared_object.doc)-1)].pos_ in set(['AUX','VERB'])) or (
+                        x.pos_!='AUX' and any([child.dep_=='dobj' for child in x.children if x.i<child.i]))):
+                    tense = {'has':'does','have':'do','had':'did'}[tense]
+                elif tense == 'had do':
+                    if self.shared_object.doc[max(0,x.i-1)].orth_.lower()!='better':
+                        tense = 'had done'
+                    else:
+                        tense = 'had better do'
+                elif tense in set(['have do','has do','having do','having been do']):
+                    tense = ' '.join(tense.split(' ')[:-1]+['done'])
+                elif tense == 'has doing':
+                    tense = 'is doing'
+                id_range.append(x.i)
+                id_range = sorted(list(set(id_range)))
+                if self.shared_object.doc[id_range[0]].tag_=='MD' and self.shared_object.doc[id_range[1]].tag_!='VB':
+                    return None, None
+                return tense, id_range
+
+        def expand_contraction(self,x):
+            t = x.orth_.lower()
+            if x.orth_.lower().endswith('ve'):
+                t = 'have'
+            elif x.orth_.lower().endswith('re'):
+                t = 'are'
+            elif x.orth_.lower().endswith('m'):
+                t = 'am'
+            elif x.orth_.lower().endswith('d'):
+                if x.lemma_ == 'have':
+                    t = 'had'
+                else:
+                    t = 'would'
+            elif x.orth_.lower().endswith('ll'):
+                t = 'will'
+            elif x.orth_.lower().endswith('s'):
+                if x.lemma_ == 'be':
+                    t = 'is'
+                    if any([x.i!=x.head.i and child.i>x.head.i and child.pos_ in set(['NOUN','PRON','PROPN']) for child in x.head.children]):
+                        t = 'has'
+                else:
+                    t = 'has'
+            return t
+        
+        def get_aux(self,x):
+            tense = []
+            id_range = []
+            #if x.dep_=='xcomp' and list(x.children)[0].lemma_!='to' and list(x.children)[0].pos_!='PART':
+            #    return tense, id_range
+            for child in x.children:
+                if child.dep_ in set(['aux','auxpass']) and child.i<x.i:# and child.i<x_i
+                    if child.orth_ in set(['…','...',';','-','—','–',':']):
+                        tense = []
+                        continue
+                    if child.orth_.startswith("'") or child.orth_.startswith("’"):
+                        tense.append(self.expand_contraction(child))
+                        id_range.append(child.i)
+                    else:
+                        tense.append(child.orth_.lower())
+                        id_range.append(child.i)
+            return tense, id_range
+
+        def classify_tense(self,form,x):
+            tense2 = None
+            tense1 = None
+            
+            if form.startswith("ain't"):
+                tense2 = 'contextual'
+            elif form == 'had better do':
+                tense2 = 'inf.'
+            elif sum([form.startswith(y) for y in set(['did','was','were','had','got'])])>0:
+                tense2 = 'ind. (past)'
+            elif form == 'do do' and x.i>=3 and self.shared_object.doc[x.i-1].lemma_=='you' and self.shared_object.doc[x.i-2].lemma_=='not' and self.shared_object.doc[x.i-3].lemma_=='do' and all([child.orth_!='?' for child in x.children if x.i<child.i]):
+                tense2 = 'imp.'
+            elif sum([form.startswith(y) for y in set(['do ','does','has','have','am','is','are','gets','get'])])>0:
+                tense2 = 'ind. (present)'
+            elif form=='do':
+                first = x
+                while first.dep_ == 'conj':
+                    first = first.head
+                if all([child.dep_!='nsubj' for child in first.children if child.i<first.i]) and str(x.morph) == 'VerbForm=Inf' and not (x.i>=4 and self.shared_object.doc[x.i-1].lemma_=='but' and self.shared_object.doc[x.i-2].lemma_=='help' and self.shared_object.doc[x.i-3].lemma_=='not' and self.shared_object.doc[x.i-4].lemma_ in ['can','could']):
+                    tense2 = 'imp.'
+                elif "VerbForm=Fin" in str(x.morph) and first.head.lemma_!='let':
+                    tense2 = 'ind. (present)'
+                else:
+                    tense2 = 'inf.'
+            elif form.endswith('do'):
+                tense2 = 'inf.'
+            elif form=='done':
+                tense2 = 'part. (past)'
+            elif form.split(' ')[0].endswith('ing'):
+                tense2 = 'part. (present)'
+                if x.dep_ == 'conj':
+                    first = x.head
+                    while first.dep_ == 'conj':
+                        first = first.head
+                else:
+                    first = x
+                if first.head.pos_ in set(['VERB','ADP']) and first.dep_ in set(['xcomp','pcomp']) or first.dep_=='ccomp' and first.head.pos_=='VERB' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([first.head.i,first.i])) if i!=first.head.i]) or first.head.pos_=='AUX' and first.dep_=='csubj':
+                    tense2 = 'ger.'
+            elif str(x.morph) in set(['VerbForm=Fin','VerbType=Mod']):
+                tense2 = 'fin.'
+            else:
+                tense2 = 'inf.'
+
+            if form.endswith('done'):
+                if tense2 == 'part. (past)':
+                    tense1 = 'do'
+                else:
+                    if form.endswith('been done'):
+                        tense1 = 'have been done'
+                    elif form.endswith('being done'):
+                        if form == 'being done':
+                            tense1 = 'be done'
+                        else:
+                            tense1 = 'be being done'
+                    elif form in set(['have done','has done','had done']):
+                        tense1 = 'have done'
+                    elif form.startswith('having'):
+                        tense1 = 'have '+' '.join(form.split(' ')[1:])
+                    else:
+                        tense1 = 'be done'
+                    
+            elif form.endswith('been'):
+                tense1 = 'have done'
+                
+            elif form.endswith('doing'):
+                if form.endswith('been doing'):
+                    tense1 = 'have been doing'
+                else:
+                    if tense2 in set(['part. (present)','ger.']):
+                        tense1 = 'do'
+                    elif form.startswith('having'):
+                        tense1 = 'have '+' '.join(form.split(' ')[1:])
+                    elif form.startswith('be ') or form.startswith('am ') or form.startswith('is ') or form.startswith('are ') or form.startswith('was ') or form.startswith('were ') or form.startswith("ain't "):
+                        tense1 = 'be doing'
+                
+            elif form == 'being':
+                tense1 = 'do'
+                
+            elif form in set(['has','had','had']):
+                if self.shared_object.doc[min(x.i+1,len(self.shared_object.doc)-1)].pos_ == 'PUNCT':
+                    tense1 = 'have done'
+                else:
+                    tense1 = 'do'
+            elif tense2 == 'fin.':
+                tense1 = 'unbound modal verbs'
+            else:
+                tense1 = 'do'
+                
+            if tense2.startswith('part'):
+                tense1 = None
+                tense2 = None
+            return tense1,tense2
+
+        def tense2level(self,form,tense1,tense2,x):
+            tenses = self.tense_level_dict
+                
+            level = tenses.get((tense1,tense2),5)
+
+            #if form in set(['do do','did do','does do']):
+            #    if not any([y.lemma_ == 'not' for y in doc[x.head.i:x.i]]):
+            #        level = 1
+            if any([form.startswith(m) for m in set(['will','may','might','would','could','shall'])]):
+                level = max(1,level)
+            elif any([form.startswith(m) for m in set(['can','should','must'])]):
+                level = max(0.5,level)
+            elif tense1=='have done' and tense2=='ind. (present)' and x.lemma_.lower()=='get' and all([child.dep_ != 'dative' for child in x.children]) and any([child.dep_ == 'dobj' for child in x.children]):
+                level = 0
+                form = 'have got (POSSESS)'
+            return level, form
+
+        def convert_tense_name(self,form,tense1,tense2):
+            name = self.tense_name_dict.get((tense1,tense2),"?")
+            if tense2 == 'inf.':
+                if form.startswith('will'):
+                    if ' ' in name:
+                        name = 'Future {} ({} with modal verb "will")'.format(' '.join(name.split(' ')[1:]),name)
+                    else:
+                        name = f'Future simple ({name} with modal verb "will")'
+                elif form.startswith('to '):
+                    name += ' with "to"'
+                elif any([form.startswith(m) for m in set(['may','might','would','could','shall','can','should','must'])]):
+                    name += ' with modal verb: {}'.format(form.split(' ')[0])
+                    #name += ' with modal verb'
+                elif len(form.split(' '))>=2:
+                    name += ' with auxilary verb'
+                else:
+                    name += ' without "to"'
+            elif form == 'have got (POSSESS)':
+                name = 'Possession with "have got"'
+            return name
+
+        def get_subtree(self,members,new_members):
+            if len(new_members) == 0:
+                return members
+            else:
+                members += new_members
+                children = []
+                for i in new_members:
+                    for child in self.shared_object.doc[i].children:
+                        #if child.dep_ not in set(['relcl','ccomp','advcl','acl','csubj']) and not (child.dep_=='pcomp' and child.pos_ in set(['VERB','AUX'])):
+                        if child.dep_ not in set(['relcl','ccomp','advcl','acl','csubj']):
+                            children.append(child.i)
+                return self.get_subtree(members,children)
+
+        def get_clause(self,x):
+            subtree = None
+            clause = None
+            clause_form = None
+            level = None
+            leftest_child = None
+            children = []
+            
+            if x.dep_ == 'conj' and x.nbor(-1).dep_!='cc':
+                first = x.head
+                while first.dep_ == 'conj':
+                    first = first.head
+            else:
+                first = x
+            if (first.dep_ == 'advcl' or first.dep_ == 'acl') and x.pos_ in set(['VERB','AUX']):
+                for child in x.children:
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                        children.append(child.i)
+                        if clause_form is None and child.i<x.i:
+                            if child.tag_ == 'VBG':
+                                clause_form = 'part. (present)'
+                            elif child.tag_ == 'VBN':
+                                clause_form = 'part. (past)'
+                            elif child.tag_ in set(['WRB','WDT','WP','WP$']) or child.tag_=='IN' and len(list(child.children))==0:
+                                clause_form = child.lemma_
+                subtree = sorted(self.get_subtree([x.i],children))
+                if clause_form is None:
+                    try:
+                        leftest_child = self.shared_object.doc[min([child.i for child in first.children if child.i<first.i])]
+                    except:
+                        pass
+                    if leftest_child is not None and (leftest_child.tag_ in set(['WRB','WDT','WP','WP$']) or leftest_child.tag_=='IN' and len(list(leftest_child.children))==0):
+                        clause_form = leftest_child.lemma_
+                    elif self.shared_object.doc[subtree[0]].orth_.lower() in set(['had','should','were']) and self.shared_object.doc[subtree[0]].pos_=='AUX':
+                        clause_form = self.shared_object.doc[subtree[0]].orth_.lower()
+                    elif self.shared_object.doc[subtree[0]].tag_ in set(['WRB','WDT','WP','WP$']) or self.shared_object.doc[subtree[0]].tag_=='IN' and len(list(self.shared_object.doc[subtree[0]].children))==0:
+                        clause_form = self.shared_object.doc[subtree[0]].lemma_
+                    else:
+                        if first.tag_ == 'VBG' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
+                            clause_form = 'part. (present)'
+                        elif first.tag_ == 'VBN' and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
+                            clause_form = 'part. (past)'
+                        elif first.tag_ in set(['WRB']) or first.tag_=='IN' and len(list(first.children))==0:
+                            clause_form = x.lemma_
+                if clause_form is None and leftest_child is not None:
+                    if leftest_child.tag_=='RB':
+                        clause_form = leftest_child.lemma_
+                    elif leftest_child.lemma_!='to':
+                        clause_form = '(that)'
+                
+            elif first.dep_ == 'relcl' and 'TO' not in set([child.tag_ for child in x.children if child.i < x.i]):
+                for child in x.children:
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                        children.append(child.i)
+                        if clause_form is None and child.tag_ in set(['WRB','WDT','WP','WP$']) and child.i<x.i:
+                            clause_form = child.lemma_
+                if clause_form is None:
+                    for grandchild in sum([list(child.children) for child in x.children if child.i<x.i],[]):
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
+                            clause_form = grandchild.lemma_
+                            break
+                if clause_form is None:
+                    clause_form = '(that)'
+                subtree = self.get_subtree([x.i],children)
+            elif first.dep_ in set(['ccomp','csubj']) and x.pos_ in set(['VERB','AUX']) and all([self.shared_object.doc[j].lemma_ not in set(['"',';']) for j in range(*sorted([x.i,first.head.i]))]):
+                for child in x.children:
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                        children.append(child.i)
+                        if clause_form is None and child.i<x.i and child.tag_ in set(['WRB','WDT','WP','WP$','IN']) and child.pos_!='ADP' and not (first.dep_=='ccomp' and x.i<=first.head.i):
+                            clause_form = child.lemma_
+                subtree = sorted(self.get_subtree([x.i],children))
+                if clause_form is None and not (first.dep_=='ccomp' and x.i<=first.head.i):
+                    for grandchild in sum([list(child.children) for child in x.children if child.i<x.i and child.pos_ not in set(['VERB','AUX'])],[]):
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
+                            clause_form = grandchild.lemma_
+                            break
+                if clause_form is None:
+                    if self.shared_object.doc[subtree[0]].tag_ in set(['WRB','WDT','WP','WP$']) and not (first.dep_=='ccomp' and x.i<=first.head.i):
+                        clause_form = self.shared_object.doc[subtree[0]].lemma_
+                    elif x.tag_=='VBN' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
+                        clause_form = 'part. (past)'
+                    elif x.tag_=='VBG' and (x.head.pos_=='VERB' or x.head.pos_=='AUX' and x.i<x.head.i) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([subtree[0],first.i]))]):
+                        clause_form = None
+                    elif x.tag_=='VB' and all(self.shared_object.doc[i].pos_!='AUX' for i in range(*sorted([first.head.i,first.i]))):
+                        clause_form = None
+                    elif first.head.lemma_!='let' and first.head.i<x.i:
+                        clause_form = '(that)'
+                if clause_form is not None and not (all(self.shared_object.doc[y].lemma_!=')' for y in range(*sorted([first.head.i,first.i]))) or any(self.shared_object.doc[y].lemma_=='(' for y in range(*sorted([first.head.i,first.i])))):
+                    clause_form = None
+                last_i = sorted(set(subtree))[-1]
+                if first.dep_ == 'ccomp' and (self.shared_object.doc[min(last_i+1,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+2,len(self.shared_object.doc)-1)].lemma_=='so' or self.shared_object.doc[min(last_i+3,len(self.shared_object.doc)-1)].lemma_=='so'):
+                    clause_form = None
+                    subtree = None
+            elif first.dep_=='pcomp' and x.pos_ in set(['VERB','AUX']):
+                for child in x.children:
+                    if child.dep_ not in set(['relcl','advcl','ccomp','acl','csubj']) and not (child.dep_=='conj' and self.shared_object.doc[max(0,child.i-1)].dep_!='cc'):
+                        children.append(child.i)
+                        if clause_form is None and child.i<x.i and child.tag_ in set(['WRB','WDT','WP','WP$']):
+                            clause_form = child.lemma_
+                if clause_form is None:
+                    for grandchild in sum([list(child.children) for child in x.children if child.i<x.i],[]):
+                        if grandchild.tag_ in set(['WRB','WDT','WP','WP$']):
+                            clause_form = grandchild.lemma_
+                            break
+                subtree = sorted(self.get_subtree([x.i],children))
+                    
+            elif first.dep_=='prep' and first.pos_=='VERB' and first.tag_=='VBN':
+                subtree = self.get_subtree([x.i],[child.i for child in x.children])
+                clause_form = 'part. (past)'
+                
+            #elif first.dep_ == 'parataxis':
+            #    clause_form = '(parataxis)'
+                
+            if subtree is None or clause_form is None:
+                if x.dep_=='conj' and x.pos_ in set(['VERB','AUX']):
+                    temp_children = list(x.children)
+                    if len(temp_children)>0 and temp_children[0].dep_ == 'mark':
+                        clause_form = temp_children[0].lemma_
+                        subtree = sorted(self.get_subtree([x.i],children))
+                    else:
+                        temp_siblings = []
+                        has_subject = False
+                        for sibling in x.head.children:
+                            if sibling.i<x.i and sibling.pos_!= 'PUNCT' and sibling.pos_!= 'SPACE':
+                                temp_siblings.append(sibling)
+                        if len(temp_siblings)>0:
+                            for i in range(temp_siblings[-1].i,x.i):
+                                if self.shared_object.doc[i].dep_ == 'nsubj':
+                                    has_subject = True
+                            if has_subject and temp_siblings[-1].dep_ == 'cc' and temp_siblings[-1].i<x.i:
+                                clause_form = temp_siblings[-1].lemma_
+                                clause = 'cc'
+                                subtree = sorted(self.get_subtree([x.i],children)+[temp_siblings[-1].i])
+                elif x.pos_ == 'CONJ' and x.head.dep_ == 'ROOT' and x.i<x.head.i:
+                    clause_form = x.lemma_
+                    clause = 'cc'
+                    subtree = list(range(x.i,x.head.i+1))
+
+            if subtree is not None and clause_form is not None and len(subtree)>0:
+                if clause_form == '(parenthesis)':
+                    clause = 'parenthesis'
+                elif clause != 'cc':
+                    clause = first.dep_
+                if clause in set(['ccomp','csubj','pcomp']):
+                    clause = 'ncl'
+                elif clause == 'prep':
+                    clause = 'advcl'
+                elif clause in set(['relcl','acl']) and x.head.orth_.lower()=='idea' and x.head.head.lemma_ in set(['have','get']):
+                    clause = 'ncl'
+                subtree = sorted(set(subtree))
+                level = self.clause2level(clause_form,clause,subtree,first,leftest_child)
+            if level is None:
+                subtree = None
+            return clause_form, clause, subtree, level
+
+        def clause2level(self,clause_form,clause,subtree,first,leftest_child):
+            level = 1
+            if clause == 'relcl':
+                if any([child.pos_=='ADP' for child in first.children if child.i<first.i]):
+                    level = 3
+                elif clause_form in set(['whose','where','when','why','how','whether','what']) or self.shared_object.doc[subtree[-1]].pos_=='ADP' and len(list(self.shared_object.doc[subtree[-1]].children))==0:
+                    level = 2
+                else:
+                    level = 1
+                    
+            elif clause == 'ncl':
+                if first.dep_ == 'csubj':
+                    level = 4
+                elif clause_form.endswith('ever'):
+                    level = 3
+                elif clause_form.startswith('part.'):
+                    level = 3
+                elif clause_form in set(['whose','where','when','why','how','whether','what','who','which','if']):
+                    level = 3
+                elif clause_form in set(['that','(that)']):
+                    level = 2
+                    
+            elif clause == 'advcl':
+                if clause_form == 'like':
+                    level = 2
+                elif clause_form.endswith('ever'):
+                    level = 4
+                elif clause_form.startswith('part.'):
+                    level = 2
+                elif (leftest_child is not None and leftest_child.tag_=='IN' or self.shared_object.doc[min(subtree)].tag_=='IN') and first.tag_ in set(['VBG','VBN']) and all([self.shared_object.doc[i].tag_ not in set(['VBZ','VBD','VBP','VB']) for i in range(*sorted([min(subtree),first.i]))]):
+                    level = 4
+                elif clause_form in set(['that','(that)','when']):
+                    level = 1
+                elif clause_form in set(['because','so','but']):
+                    level = 0
+                elif clause_form in set(['whether','since','as']):
+                    level = 2
+                elif clause_form in set(['where','how','what']):
+                    level = 4
+                elif clause_form in set(['had','should','were']):
+                    level = 5
+                
+            elif clause == 'prep':
+                if clause_form=='part. (past)':
+                    level = 4
+                    
+            elif clause == 'acl':
+                level = 2
+                
+            elif clause == 'parenthesis':
+                level = 2
+
+            elif clause == 'cc':
+                if clause_form == 'yet':
+                    level = 2
+                else:
+                    level = 0
+                
+            return level
+
+        def float2cefr(self, num):
+            cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
+            output = cefr.get(int(num),"Native")
+            if num<6:
+                s = "%.1f" % num
+                output += s[s.index('.'):]
+            return output
+
+        def float2ielts(self, num):
+            if num >= 5.45:
+                return 9.0
+            elif num >= 5.25:
+                return 8.5
+            elif num >= 5.0:
+                return 8.0
+            elif num >= 4.55:
+                return 7.5
+            elif num >= 4.25:
+                return 7.0
+            elif num >= 3.8:
+                return 6.5
+            elif num >= 3.45:
+                return 6.0
+            elif num >= 3.1:
+                return 5.5
+            elif num >= 2.7:
+                return 5.0
+            elif num >= 2.35:
+                return 4.5
+            elif num >= 2.0:
+                return 4.0
+            else:
+                return round(num * 2 / 0.5) * 0.5
+
+        def score2grades(self, score):
+            ket = "KET "
+            if 120 <= score <= 132:
+                ket += "Grade C"
+            elif 133 <= score <= 139:
+                ket += "Grade B"
+            elif 140 <= score <= 150:
+                ket += "Grade A"
+            else:
+                ket = ""
+
+            pet = "PET "
+            if 140 <= score <= 152:
+                pet += "Grade C"
+            elif 153 <= score <= 159:
+                pet += "Grade B"
+            elif 160 <= score <= 170:
+                pet += "Grade A"
+            else:
+                pet = ""
+
+            fce = "FCE "
+            if 160 <= score <= 172:
+                fce += "Grade C"
+            elif 173 <= score <= 179:
+                fce += "Grade B"
+            elif 180 <= score <= 190:
+                fce += "Grade A"
+            else:
+                fce = ""
+
+            cae = "CAE "
+            if 180 <= score <= 192:
+                cae += "Grade C"
+            elif 193 <= score <= 199:
+                cae += "Grade B"
+            elif 200 <= score <= 210:
+                cae += "Grade A"
+            else:
+                cae = ""
+
+            cpe = "CPE "
+            if 200 <= score <= 212:
+                cpe += "Grade C"
+            elif 213 <= score <= 219:
+                cpe += "Grade B"
+            elif 220 <= score <= 230:
+                cpe += "Grade A"
+            else:
+                cpe = ""
+
+            return [x for x in [ket, pet, fce, cae, cpe] if x]
+
+
+        def float2exams(self, num):
+            score = int(num*20+100)
+            grades = self.score2grades(score)
+            ielts = self.float2ielts(num)
+            return {'cambridge_scale_score':score,'exam_grades':grades,'ielts':ielts}
+
+        
+        def sentence_length_level(self, length):
+            a,b = [0.20722492, 3.30842234]
+            return 6/(1+np.exp(-length*a+b))
+        
+        def cefr2length(self, level):
+            a,b = [0.20722492, 3.30842234]
+            return round(max(1,(b-np.log(6/level-1))/a)) if level else 1
+
+        def process_input(self,reference_word,reference_pos,reference_CEFR,word,pos,max_length=38):
+            letter2id = {x:i+7 for i,x in enumerate(list('abcdefghijklmnopqrstuvwxyz'))}
+            pos2id = {'NOUN': 33, 'ADJ': 34, 'VERB': 35, 'ADV': 36}
+            x =  [letter2id[x] for x in reference_word] + [pos2id[reference_pos]] + [reference_CEFR+1] + [letter2id[x] for x in word] + [pos2id[pos]]
+            return np.pad(x,(0,max_length-len(x)))
+
+        def stem_prefix(self,word):
+            prefixes = ["anti","auto","de","dis","down","extra","hyper","il","im","in","ir",
+                                "inter","mega","mid","mis","non","over","out","post","pre","pro","re",
+                                "semi","sub","super","tele","trans","ultra","un","up"]
+            for prefix in sorted(prefixes, key=len, reverse=True):
+                if word.startswith(prefix):
+                    word = word[len(prefix):]
+            return word
+
+        def stem_suffix(self,word):
+            suffixes = ['less']
+            for suffix in sorted(suffixes, key=len, reverse=True):
+                if word.endswith(suffix):
+                    word = word[:-len(suffix)]
+            return word
+
+        def get_stems(self,word):
+            stems = set(sum([[stemmer.stem(self.stem_prefix(word)),stemmer.stem(word)] for stemmer in stemmers],[]))
+            stems = stems.union(set([self.stem_suffix(stem) for stem in stems]))
+            return stems
+
+        def predict_cefr(self,word,pos):
+            levels = []
+            word = str(word).replace('-','')
+            stems = self.get_stems(word)
+            for stem in stems:
+                temp_dict = df_reference_words[df_reference_words['level_0']==stem].to_dict('records')
+                for row in temp_dict:
+                    try:
+                        levels.append(np.argmax(cefr_word_model.predict(self.process_input(*row.values,word,pos).reshape(1,-1))))
+                    except:
+                        pass
+            if len(levels)==0:
+                for stem in stems:
+                    temp_dict = df_reference_words_sup[df_reference_words_sup['level_0']==stem].to_dict('records')
+                    for row in temp_dict:
+                        try:
+                            levels.append(np.argmax(cefr_word_model.predict(self.process_input(*row.values,word,pos).reshape(1,-1))))
+                        except:
+                            pass
+
+            if len(levels)==0:
+                return 6
+            else:
+                return max(levels)
+
+        def get_tense_tips_data(self, tense_count, general_level):
+            grammar_count = {}
+            grammar_level = {}
+            infinitive_temp = {}
+            for v in tense_count.values():
+                for i in range(len(v['tense_term'])):
+                    name = v['tense_term'][i]
+                    if name.startswith('Infinitive') and 'with modal verb' in name:
+                        name_with_level = str(v['level'][i])+'_'+' '.join(name.split(' ')[:-1])
+                        if name_with_level in infinitive_temp:
+                            infinitive_temp[name_with_level].append(name.split(' ')[-1])
+                        else:
+                            infinitive_temp[name_with_level] = [name.split(' ')[-1]]
+                    else:
+                        if name in grammar_count:
+                            grammar_count[name] += v['size'][i]
+                        else:
+                            grammar_count[name] = v['size'][i]
+                        grammar_level[name] = v['level'][i]
+            for name_with_level,modal_verbs in infinitive_temp.items():
+                name = name_with_level.split('_')[-1] + ' {}'.format(', '.join(set(modal_verbs)))
+                grammar_level[name] = float(name_with_level.split('_')[0])
+                grammar_count[name] = len(modal_verbs)
+
+            df_grammar = pd.concat([pd.Series(grammar_level,name='level'),pd.Series(grammar_count,name='count')],axis=1)
+            df_grammar['level_diff'] = round(general_level-df_grammar['level'],1)
+            df_grammar['ratio'] = np.round(df_grammar['count']/sum(df_grammar['count']),2)
+            df_grammar['tense_term'] = df_grammar.index
+            return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
+            
+        def run_embed(self):
+            sentences = []
+            for k,v in self.embeddings.items():
+                if v is None:
+                    sentences.append(v['sentence'])
+            embeddings = sentence_model.encode(sentences)
+            for i in range(len(embeddings)):
+                self.embeddings[sentences[i]] = embeddings[i]
+            
+        def embed_all(self, dfs):
+            sentences = []
+            em_indeces = {}
+            head_indeces = {}
+            for k,df in dfs.items():
+                sentence = df.to_dict('list')
+                tokens = []
+                for i in range(len(sentence['word'])):
+                    tokens.append(sentence['word'][i] + ' '*sentence['whitespace'][i])
+                for i in range(len(tokens)):
+                    if sentence['pos'][i]!= 'PUNCT' and sentence['pos'][i]!= 'SPACE' and sentence['lemma'][i] not in most_freq_50:
+                        words = tokens+[]
+                        words[i] = "[UNK]"+' '*sentence['whitespace'][i]
+                        s = ''.join(words).strip()
+                        if len(s.split(' '))>1:
+                            em_indeces[f'{k}_{i}'] = len(sentences)
+                            sentences.append(''.join(words).strip())
+                head_indeces[k] = len(sentences)
+                sentences.append(''.join(tokens).strip())
+            ems = sentence_model.encode(sentences)
+            X = []
+            for k,df in dfs.items():
+                self.embeddings[sentences[head_indeces[k]]] = ems[head_indeces[k]]
+                weights = [0]*len(df)
+                for i in range(len(df)):
+                    if f'{k}_{i}' in em_indeces:
+                        weights[i] = np.linalg.norm(ems[em_indeces[f'{k}_{i}']]-ems[head_indeces[k]])
+                weights = np.array(weights)
+                sum_weights = sum(weights)
+                dfs[k]['weight'] = weights/sum_weights if sum_weights else weights
+                X.append(self.extract_sentence_features(df)+list(ems[head_indeces[k]]))
+            self.features = X
+            
+            CEFR_sentences = {}
+            pred = np.round(sentence_level_model.predict(X,verbose = 0),1)
+            for i,k in enumerate(dfs.keys()):
+                CEFR_sentences[k] = min(max(0,pred[i][0]),6)
+            self.CEFR_sentences = CEFR_sentences
+
+            return dfs
+
+        def extract_sentence_features(self, df):
+            sentences = df.to_dict('list')
+            pos = np.array(sentences['pos'])
+            if 'CEFR_vocabulary' not in sentences:
+                sentences['CEFR_vocabulary'] = sentences['CEFR']
+            features = [
+                len([x for x in pos if x not in ['PUNCT','SPACE']]),
+                sentences['pos'].count("PRON"),
+                sentences['pos'].count("NOUN")+sentences['pos'].count("PROPN"),
+                sentences['pos'].count("VERB"),
+                sentences['pos'].count("ADV"),
+                sentences['pos'].count("ADJ"),
+                sentences['CEFR_vocabulary'].count(-1)+sentences['CEFR_vocabulary'].count(0),
+                sentences['CEFR_vocabulary'].count(1),
+                sentences['CEFR_vocabulary'].count(2)+sentences['CEFR_vocabulary'].count(3),
+                sentences['CEFR_vocabulary'].count(4)+sentences['CEFR_vocabulary'].count(5)+sentences['CEFR_vocabulary'].count(6),
+            ]
+
+            features.append(sum((np.maximum(sentences['CEFR_vocabulary'],0)+1)*np.array(sentences['weight']))-1)
+
+            if len(sentences['CEFR_tense'])>0:
+                features.append(max(np.nan_to_num(sentences['CEFR_tense'])))
+            else:
+                features.append(0)
+                
+            clause_count,_ = self.count_clause(df)
+            features.append(clause_count[0])
+            features.append(clause_count[1])
+            features.append(clause_count[2]+clause_count[3])
+            features.append(clause_count[4]+clause_count[5])
+            return features
+
+        def get_word_weights(self, sentence):
+            sentences = []
+            em_indeces = {}
+            tokens = []
+            for i in range(len(sentence['word'])):
+                tokens.append(sentence['word'][i] + ' '*sentence['whitespace'][i])
+
+            for i in range(len(tokens)):
+                if sentence['pos'][i]!= 'PUNCT' and sentence['pos'][i]!= 'SPACE' and sentence['lemma'][i] not in most_freq_50:
+                    words = tokens+[]
+                    words[i] = "[UNK]"+' '*sentence['whitespace'][i]
+                    sentences.append(''.join(words))
+                    em_indeces[i] = len(sentences)-1
+            sentences.append(''.join(tokens))
+            weights = [0]*len(tokens)
+            ems = sentence_model.encode(sentences)
+            for i in range(len(tokens)):
+                if i in em_indeces:
+                    weights[i] = np.linalg.norm(ems[em_indeces[i]]-ems[-1])
+            weights = np.array(weights)
+            sum_weights = sum(weights)
+            return weights/sum_weights if sum_weights else weights
+
+
+        def tag_text(self, sentences):
+            num2cefr = {-1:'CEFR_A0',0:'CEFR_A1',1:'CEFR_A2',2:'CEFR_B1',3:'CEFR_B2',4:'CEFR_C1',5:'CEFR_C2',6:'CEFR_D'}
+            text_tagged = ''
+            for _, s in sentences.items():
+                for i in range(len(s['pos'])):
+                    try:
+                        cefr = num2cefr.get(s['CEFR_vocabulary'][i])
+                    except:
+                        cefr = num2cefr.get(s['CEFR'][i])
+                    if cefr:
+                        text_tagged += f"<{cefr}>" + s['word'][i] + f"</{cefr}>" + ' '*s['whitespace'][i]
+                    else:
+                        text_tagged += s['word'][i] + ' '*s['whitespace'][i]
+            return text_tagged
+
+
+        def print_time(self, message):
+            #print(message, time.time()-self.t0)
+            self.t0 = time.time()
+
+        def process(self):
+            dfs = {}
+            rows = []
+
+            verb_form_time = 0
+            clause_time = 0
+            vocabulary_time = 0
+            phrase_time = 0
+            typing_time = 0
+            self.t0 = time.time()
+            for sent in self.shared_object.doc.sents:
+                n_sent = len(dfs)
+                for count_token, x in enumerate(sent):
+                    #if x.pos_ == 'SPACE':
+                    #    continue
+
+                    ######################
+                    # Remove extra spaces
+                    #####################
+                    the_orth = x.orth_
+                    is_white_space = bool(x.whitespace_)
+                    if x.orth_ == '"':
+                        is_white_space = False
+                        
+                    if count_token+1 < len(sent) and x.orth_ == ' ' and sent[count_token+1].orth_ in set(['[', '(', '"']):
+                        the_orth = ''
+                        
+                    if count_token+1 < len(sent) and sent[count_token+1].orth_ in set(['[', '(', '"']):
+                        is_white_space = False
+
+                    if the_orth == '' and not is_white_space:
+                        continue
+                    if the_orth.strip(' ') == '':
+                        if len(rows)==0:
+                            continue
+                        elif not rows[-1]['whitespace']:
+                            rows[-1]['whitespace'] = True
+                            continue
+                    elif '\n' in the_orth:
+                        the_orth = the_orth.strip(' ')
+
+                    ###################################
+
+                    if x.pos_ == 'PUNCT' or x.pos_ == 'SPACE':
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
+                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
+                    elif not bool(re.match(".*[A-Za-z]+",x.lemma_)):
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':'PUNCT','CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
+                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
+                    else:
+                        skip = False
+                        if x.pos_ == 'INTJ' and self.settings['intj_as_lowest']==True:
+                            skip = True
+                        elif x.pos_ == 'PROPN':
+                            if self.settings['propn_as_lowest']==True:
+                                skip = True
+                            else:
+                                x.lemma_ = lemmatizer.lemmatize(x.lemma_.lower())
+                            
+                        if not skip:
+                            #x = fine_lemmatize(x,self.shared_object.doc,nlp)
+
+                            tense_level = None
+                            form = None
+                            tense_span = None
+                            tense1 = None
+                            tense2 = None
+                            tense_term = None
+                            
+                            
+                            self.t0 = time.time()
+                            # Verb forms
+                            try:
+                                if x.pos_ in set(['VERB','AUX']):
+                                    form, tense_span = self.get_verb_form(x)
+                            except:
+                                pass
+                            if form is not None:
+                                tense1, tense2 = self.classify_tense(form,x)
+                                if tense1 is not None and tense2 is not None:
+                                    tense_level, form = self.tense2level(form,tense1,tense2,x)
+                                    tense_term = self.convert_tense_name(form,tense1,tense2)
+                            verb_form_time += time.time()-self.t0
+                                    
+                            self.t0 = time.time()
+                            # Clauses
+                            clause_form, clause, clause_span, clause_level = self.get_clause(x)
+                            clause_time += time.time()-self.t0
+
+                            self.t0 = time.time()
+                            # Vocabulary
+                            if x.orth_.lower() in most_freq_50:
+                                word_lemma = tuple([x.lemma_,'STOP'])
+                                word_orth = tuple([x.orth_.lower(),'STOP'])
+                            else:
+                                word_lemma = tuple([x.lemma_,x.pos_])
+                                word_orth = tuple([x.orth_.lower(),x.pos_])
+
+                            if self.settings['keep_min']:
+                                cefr_w_pos_prim = cefr_w_pos_min_prim
+                                cefr_wo_pos_prim = cefr_wo_pos_min_prim
+                            else:
+                                cefr_w_pos_prim = cefr_w_pos_mean_prim
+                                cefr_wo_pos_prim = cefr_wo_pos_mean_prim
+
+                            level = None
+                            if len(self.settings['custom_dictionary'])>0:
+                                for k, v in self.settings['custom_dictionary'].items():
+                                    if isinstance(k, list):
+                                        self.settings['custom_dictionary'][tuple(k)] = v
+                                        del self.settings['custom_dictionary'][k]
+                                for key in [word_lemma,word_orth,x.lemma_,x.orth_.lower(),x.orth_]:
+                                    level = self.settings['custom_dictionary'].get(key,None)
+                                    if level is not None:
+                                        break
+                            if level is None:
+                                level = self.get_word_cefr(word_lemma,word_orth,cefr_w_pos_prim,cefr_wo_pos_prim)
+                                if level == 6:
+                                    if x.lemma_.endswith('1st') or x.lemma_.endswith('2nd') or x.lemma_.endswith('3rd') or bool(re.match("[0-9]+th$",x.lemma_)):
+                                        level = 0
+                                    elif x.pos_ == 'NUM':
+                                        if bool(re.match("[A-Za-z]+",x.lemma_)):
+                                            level = 0
+                                        else:
+                                            level = -1
+                                    elif len(re.findall("[A-Za-z]{1}",x.lemma_))==1:
+                                        level = 0
+                                    else:
+                                        level = max(2,self.predict_cefr(x.lemma_,x.pos_))
+                        vocabulary_time += time.time()-self.t0
+
+                        self.t0 = time.time()
+                        # Phrases
+                        phrase = None
+                        phrase_span = None
+                        max_confidence = 0
+                        ambiguous = True
+                        is_idiom = True
+                        
+                        if 'phrase_count' in self.outputs:
+                            phrases_words = set(df_phrases['word'].values)
+                            if x.pos_ not in set(["DET","PART"]) and x.lemma_.lower() in phrases_words:
+                                #max_phrase_length = 0
+                                max_clean_length = 0
+
+                                df_phrases_temp = df_phrases[df_phrases['word']==x.lemma_]
+                                sentence_parts = []
+                                phrases_dict_temp = df_phrases_temp.to_dict('records')
+                                for row in phrases_dict_temp:
+
+                                    #if phrase is not None and phrase.startswith(row['original']) and max_confidence==1:
+                                    #    continue
+
+                                    phrase_parts = row['phrase_parts']
+                                    phrase_length = len(phrase_parts)
+                                    #if phrase_length > max_phrase_length:
+                                    #    sentence_parts, start_index = self.get_sentence_parts(x,phrase_length)
+                                    #    max_phrase_length = phrase_length
+
+                                    sentence_parts, start_index = self.get_sentence_parts(x,row['followed_by'])
+                                    
+                                    if phrase_length>len(sentence_parts) or len(set(sum(sentence_parts,[])).intersection(set(row['lemma'])))<phrase_length:
+                                        continue
+                                    phrase_span_temp, confidence_temp, prt_ambiguous = self.get_phrase(phrase_parts, row['pos'], row['dep'], sentence_parts, start_index, row['followed_by'])
+                                    if (phrase_span_temp is not None and confidence_temp>0 and (confidence_temp>max_confidence or 
+                                                                                                confidence_temp==max_confidence and (phrase_length>max_clean_length or 
+                                                                                                                                    confidence_temp==1 and row['pos'][-1]!='ADP' and phrase_length==max_clean_length))):
+                                        phrase_span = list(np.array(phrase_span_temp) + start_index)
+                                        phrase = row['original_to_display']
+                                        max_clean_length = phrase_length*1
+                                        max_confidence = confidence_temp*1
+                                        ambiguous = row['ambiguous'] or prt_ambiguous
+                                        is_idiom = row['is_idiom']
+                        phrase_time += time.time()-self.t0
+
+                        if skip:
+                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-1,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                        'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
+                                        'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                        'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
+                        else:
+                            rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                        'form':form,'tense1':tense1,'tense2':tense2,'tense_term':tense_term,'CEFR_tense':tense_level,'tense_span':tense_span,
+                                        'clause_form':clause_form,'clause':clause,'CEFR_clause':clause_level,'clause_span':clause_span,
+                                        'phrase':phrase, 'phrase_span':phrase_span,'phrase_confidence':max_confidence,'phrase_ambiguous':ambiguous, 'phrase_is_idiom':is_idiom})
+
+                self.t0 = time.time()
+                df_lemma = pd.DataFrame(rows)
+
+                if len(rows)>0 and len(df_lemma[df_lemma['CEFR']>=-1])>0:
+                    df_lemma['id'] = df_lemma['id'].astype(int)
+                    df_lemma['word'] = df_lemma['word'].astype(str)
+                    df_lemma['lemma'] = df_lemma['lemma'].astype(str)
+                    df_lemma['pos'] = df_lemma['pos'].astype(str)
+                    df_lemma['CEFR'] = df_lemma['CEFR'].astype(float)
+                    df_lemma['whitespace'] = df_lemma['whitespace'].astype(bool)
+                    df_lemma['sentence_id'] = df_lemma['sentence_id'].astype(int)
+                    df_lemma['form'] = df_lemma['form'].astype(object)
+                    df_lemma['tense1'] = df_lemma['tense1'].astype(object)
+                    df_lemma['tense2'] = df_lemma['tense2'].astype(object)
+                    df_lemma['tense_term'] = df_lemma['tense_term'].astype(object)
+                    df_lemma['CEFR_tense'] = df_lemma['CEFR_tense'].astype(float)
+                    df_lemma['tense_span'] = df_lemma['tense_span'].astype(object)
+                    df_lemma['clause_form'] = df_lemma['clause_form'].astype(object)
+                    df_lemma['clause'] = df_lemma['clause'].astype(object)
+                    df_lemma['CEFR_clause'] = df_lemma['CEFR_clause'].astype(float)
+                    df_lemma['clause_span'] = df_lemma['clause_span'].astype(object)
+                    df_lemma['phrase'] = df_lemma['phrase'].astype(str)
+                    df_lemma['phrase_span'] = df_lemma['phrase_span'].astype(object)
+                    df_lemma['phrase_confidence'] = df_lemma['phrase_confidence'].astype(float)
+                    df_lemma['phrase_ambiguous'] = df_lemma['phrase_ambiguous'].astype(bool)
+                    df_lemma['phrase_is_idiom'] = df_lemma['phrase_is_idiom'].astype(bool)
+                    dfs[n_sent] = df_lemma
+                    rows = []
+                typing_time += time.time()-self.t0
+            
+
+            # print('verb_form_time',verb_form_time)
+            # print('clause_time',clause_time)
+            # print('vocabulary_time',vocabulary_time)
+            # print('phrase_time',phrase_time)
+            # print('typing_time',typing_time)
+            
+
+            self.t0 = time.time()
+            if len(dfs)>0:
+                dfs = self.embed_all(dfs)
+                df_lemma = pd.concat(dfs.values())
+            else:
+                df_lemma = pd.DataFrame([],columns=['id','word','lemma','pos','CEFR','whitespace','weight','sentence_id',
+                                    'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
+                                    'clause_form','clause','CEFR_clause','clause_span',
+                                    'phrase', 'phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom'])
+            self.print_time('embed_all')
+            self.df_lemma = df_lemma
+
+            if len(self.outputs)==0:
+                self.result = {}
+                return
+
+            n_words = len(df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')])
+            
+            n_clausal = 0
+            n_clauses = 0
+            sentence_levels = []
+            sentences = {}
+
+            dfs_phrase_count = []
+
+            if 'wordlists' in self.outputs:
+                topic_vocabulary = {}
+                pos_temp = {'NOUN','VERB','ADJ','ADV'}
+                df_lemma_temp = df_lemma[df_lemma.apply(lambda x: x['pos'] in pos_temp and x['lemma'] not in most_freq_50 and len(x['lemma'])>1, axis = 1)].copy()
+                df_lemma_temp['lemma_pos'] = df_lemma_temp['lemma'] + '_' + df_lemma_temp['pos']
+                topic_vocabulary = {topic:{} for topic in topic_words.keys()}
+                for topic, subtopics in topic_words.items():
+                    for subtopic, words in subtopics.items():
+                        temp = list(set(df_lemma_temp['lemma_pos']).intersection(words))
+                        if len(temp)>0:
+                            topic_vocabulary[topic][subtopic] = temp
+            self.print_time('Topic vocabulary')
+
+            sentence_levels = []
+            sentence_lengths = []
+            clause_levels = []
+            
+            for sentence_id, df in dfs.items():
+                length = len(df[(df['pos']!='PUNCT')&(df['pos']!='SPACE')])
+                sentence_lengths.append(length)
+                sentence_levels += [self.CEFR_sentences[sentence_id]]*length
+
+                df_clause = df[df['CEFR_clause'].fillna(0)>0]
+                # if len(df_clause)>0:
+                #     level_by_clause = min(sum(df_clause['CEFR_clause']*np.minimum((df_clause['clause_span'].apply(lambda x: max(1,max(x)-min(x)))/length/0.5),1)),6)
+                # else:
+                #     level_by_clause = 0
+                # clause_level = max(np.mean([level_by_length,level_by_clause]),level_by_clause)
+                # clause_levels.append(clause_level)
+                levels_by_clause = sum((df_clause['CEFR_clause'].apply(lambda x:[x])*df_clause['clause_span'].apply(lambda x: max(1,max(x)-min(x)))).values,[])
+                levels_by_clause += [0]*max(0,(length-len(levels_by_clause)))
+                clause_levels += levels_by_clause
+
+                if 'phrase_count' in self.outputs:
+                    df2 = df[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom','sentence_id']].dropna()
+                    if len(df2)>0:
+                        filter_ = []
+                        spans = df2['phrase_span'].values
+                        for i in range(len(spans)):
+                            unique = True
+                            for j in range(len(spans)):
+                                if i!=j:
+                                    if spans[i][0]>=spans[j][0] and spans[i][-1]<=spans[j][-1]:
+                                        if not(len(spans[i])==len(spans[j]) and spans[i][0]==spans[j][0] and spans[i][-1]<spans[j][-1]):
+                                            unique = False
+                                            break
+                                    elif len(spans[i])==len(spans[j]) and spans[i][0]==spans[j][0] and spans[i][-1]>spans[j][-1]:
+                                        unique = False
+                                        break
+                            filter_.append(unique)
+                        df2 = df2[filter_]
+                        dfs_phrase_count.append(df2)
+                        phrase_dict = df2[['phrase','phrase_span','phrase_confidence','phrase_ambiguous','phrase_is_idiom']].to_dict(orient='list')
+                    else:
+                        phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[],'phrase_is_idiom':[]}
+
+                if 'sentences' in self.outputs:
+                    lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR','weight']].to_dict(orient='list')
+                    lemma_dict['CEFR_vocabulary'] = lemma_dict['CEFR']+[]
+                    del lemma_dict['CEFR']
+                    df2 = df[['form','tense1','tense2','CEFR_tense','tense_span']].dropna()
+                    #level_dict = {'CEFR_vocabulary':6,'CEFR_tense':5}
+                    level_dict = {}
+                    if len(df2)>0:
+                        tense_dict = df2[['form','tense1','tense2','CEFR_tense','tense_span']].to_dict(orient='list')
+                        #level_dict['CEFR_tense'] = max(tense_dict['CEFR_tense'])
+                    else:
+                        tense_dict = {'form':[],'tense1':[],'tense2':[],'CEFR_tense':[],'tense_span':[]}
+                        #level_dict['CEFR_tense'] = 0
+
+                    df2 = df[['clause_form','clause','clause_span','CEFR_clause']].dropna()
+                    if len(df2)>0:
+                        n_clausal += 1
+                        n_clauses += len(df2)
+
+                        df2['span_string'] = df2['clause_span'].astype(str)
+                        df2['span_string2'] = df2['clause'].astype(str)
+                        clause_dict = df2.drop_duplicates(['span_string','span_string2'])[['clause_form','clause','clause_span','CEFR_clause']].to_dict(orient='list')
+                    else:
+                        clause_dict = {'clause_form':[],'clause':[],'CEFR_clause':[],'clause_span':[]}
+
+                    #_,cumsum_series = self.sum_cumsum(df[df['CEFR']>=-1])
+
+                    #level_dict['CEFR_vocabulary'] = self.estimate_95(df[df['CEFR']>=-1]['CEFR'].values)
+                    #level_dict['CEFR_clause'] = round(clause_level,1)
+                    
+                    if 'phrase_count' in self.outputs:
+                        sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,**phrase_dict,'CEFR_sentence':self.CEFR_sentences[sentence_id]}
+                    else:
+                        sentences[sentence_id] = {**lemma_dict,**tense_dict,**clause_dict,**level_dict,'CEFR_sentence':self.CEFR_sentences[sentence_id]}
+                
+            self.print_time('sentences')
+
+            if 'wordlists' in self.outputs or 'modified_final_levels' in self.outputs:
+                wordlists = {}
+                for CEFR,group in df_lemma[df_lemma['CEFR']>=-1].groupby('CEFR'):
+                    df = group[['lemma','pos']]
+                    wordlists[CEFR] = df.groupby(df.columns.tolist(),as_index=False).size().sort_values(['size','lemma','pos'],ascending=[False,True,True]).to_dict(orient='list')
+                
+            self.print_time('wordlists')
+
+            if 'tense_count' in self.outputs or 'tense_stats' in self.outputs:
+                tense_count = {}
+                for tense,group in df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense1'])].groupby(['tense1','tense2']):
+                    df = group[['form','tense1','tense2','tense_term','CEFR_tense','tense_span','sentence_id']]
+                    temp_dict = df.groupby(['form'],as_index=False).size().sort_values(['size'],ascending=[False]).to_dict(orient='list')
+                    form_id = {x:i for i,x in enumerate(temp_dict['form'])}
+                    temp_dict['tense_term'] = [None]*len(form_id)
+                    temp_dict['level'] = [None]*len(form_id)
+                    temp_dict['span'] = [None]*len(form_id)
+                    temp_dict['sentence_id'] = [None]*len(form_id)
+                    for form, group in df.groupby('form',as_index=False):
+                        temp_dict['tense_term'][form_id[form]] = group.iloc[0]['tense_term']
+                        temp_dict['level'][form_id[form]] = group['CEFR_tense'].values[0]
+                        temp_dict['span'][form_id[form]] = group['tense_span'].tolist()
+                        temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
+                    tense_count['_'.join(tense)] = temp_dict
+
+            self.print_time('tense_count')
+
+            if 'tense_term_count' in self.outputs or 'tense_stats' in self.outputs:
+                tense_term_count = {}
+
+                df_lemma_temp = df_lemma[~pd.isnull(df_lemma['form'])&~pd.isnull(df_lemma['tense_term'])&~pd.isnull(df_lemma['tense1'])&~pd.isnull(df_lemma['tense2'])].copy().reset_index(drop=True)
+                
+                for term,group in df_lemma_temp.groupby('tense_term'):
+                    df = group[['form','tense1','tense2','tense_term','CEFR_tense','tense_span','sentence_id']]
+                    temp_dict = df.groupby(['form'],as_index=False).size().sort_values(['size'],ascending=[False]).to_dict(orient='list')
+                    form_id = {x:i for i,x in enumerate(temp_dict['form'])}
+                    temp_dict['tense'] = [None]*len(form_id)
+                    temp_dict['level'] = [None]*len(form_id)
+                    temp_dict['span'] = [None]*len(form_id)
+                    temp_dict['sentence_id'] = [None]*len(form_id)
+                    for form, group in df.groupby('form',as_index=False):
+                        temp_dict['tense'][form_id[form]] = group['tense1'].values[0]+'_'+group['tense2'].values[0]
+                        temp_dict['level'][form_id[form]] = group['CEFR_tense'].values[0]
+                        temp_dict['span'][form_id[form]] = group['tense_span'].tolist()
+                        temp_dict['sentence_id'][form_id[form]] = group['sentence_id'].astype(int).tolist()
+                    tense_term_count[term] = temp_dict
+            self.print_time('tense_term_count')
+
+            sum_tense, cumsum_tense = self.count_tense(df_lemma)
+            tense_stats = {'sum_token':{'values':list(sum_tense.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_tense.values,4))}}
+            a,b,c,d = self.fit_sigmoid(cumsum_tense.values,np.arange(0,5.5,0.5))
+            tense_stats['cumsum_token']['constants']=[a,b,c,d]
+            values = []
+            for k,v in sum_tense.to_dict().items():
+                values += [k]*int(v)
+            tense_stats['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
+                                    #'ninety_five':[self.ninety_five(cumsum_tense,5)],
+                                    'ninety_five':[self.estimate_95(values,minimum=0,maximum=5,step=0.5)],
+                                    'fit_error':[self.fit_error(cumsum_tense.values[1:],np.arange(0.5,5.5,0.5),a,b,c,d)]}
+
+            self.print_time('tense_stats')
+
+            if 'clause_count' in self.outputs:
+                clause_count = {}
+                for clause,group in df_lemma[~pd.isnull(df_lemma['clause_form'])&~pd.isnull(df_lemma['clause'])].groupby('clause'):
+                    group['span_string'] = group['clause_span'].astype(str)
+                    df = group.drop_duplicates(['span_string','sentence_id'])[['clause_form','clause','CEFR_clause','clause_span','sentence_id']]
+                    temp_df = df.groupby(['clause_form','CEFR_clause'],as_index=True).agg(len)['sentence_id']#.size().sort_values(['size'],ascending=[False]).to_dict(orient='list')
+                    temp_dict = {'clause_form':[x[0]+'_'+str(x[1]) for x in temp_df.index],'size':temp_df.tolist()}
+                    form_id = {x:i for i,x in enumerate(temp_dict['clause_form'])}
+                    temp_dict['clause_span'] = [None]*len(form_id)
+                    temp_dict['sentence_id'] = [None]*len(form_id)
+                    for form, group in df.groupby(['clause_form','CEFR_clause'],as_index=False):
+                        temp_dict['clause_span'][form_id[form[0]+'_'+str(form[1])]] = group['clause_span'].tolist()
+                        temp_dict['sentence_id'][form_id[form[0]+'_'+str(form[1])]] = group['sentence_id'].astype(int).tolist()
+                    clause_count[clause] = temp_dict
+            self.print_time('clause_count')
+            
+            sum_clause, cumsum_clause = self.count_clause(df_lemma)
+            clause_stats = {'sum_token':{'values':list(sum_clause.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_clause.values,4))}}
+            a,b,c,d = self.fit_sigmoid(cumsum_clause.values,np.arange(0,6,1))
+            clause_stats['cumsum_token']['constants']=[a,b,c,d]
+            values = []
+            for k,v in sum_clause.to_dict().items():
+                values += [k]*int(v)
+            clause_stats['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
+                                    #'ninety_five':[self.ninety_five(cumsum_clause,5)],
+                                    'ninety_five':[self.estimate_95(values,minimum=0,maximum=5,step=1)],
+                                    'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]}
+            self.print_time('clause_stats')
+
+            if 'phrase_count' in self.outputs:
+                phrase_count = {}
+                if len(dfs_phrase_count)>0:
+                    df_phrase_count = pd.concat(dfs_phrase_count)
+                    for phrase,group in df_phrase_count.groupby('phrase',as_index=True):
+                        group['span_string'] = group['phrase_span'].astype(str)
+                        group = group.drop_duplicates(['span_string','sentence_id'])
+                        temp_df = group.agg(len)['sentence_id']
+                        temp_dict = {'id':phrase_original2id.get(phrase,0),'phrase_ambiguous':any(group['phrase_ambiguous'].tolist()),'phrase_is_idiom':group['phrase_is_idiom'].tolist()[0],'size':temp_df.tolist(),'phrase_span':group['phrase_span'].tolist(),'phrase_confidence':group['phrase_confidence'].tolist(),'sentence_id':group['sentence_id'].astype(int).tolist()}
+                        phrase_count[phrase] = temp_dict
+            self.print_time('phrase_count')
+
+            mean_clause = n_clausal and n_clauses/n_clausal or 0
+            if len(clause_levels)>0:
+                mean_length = round(np.mean(sentence_lengths),1)
+                length_level = self.sentence_length_level(mean_length)
+                clause_level = np.percentile(clause_levels,95)
+                if clause_level<length_level:
+                    clause_level = np.mean([clause_level,length_level])
+                clause_level = round(min(clause_level,6),1)
+            else:
+                clause_level = 0
+                mean_length = 0
+            # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
+            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'n_words':n_words})
+            
+            sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type = self.count_cefr(df_lemma)
+            
+            stats_dict = {'sum_token':{'values':list(sum_series_token.astype(int))},
+                        'cumsum_token':{'values':list(np.round(cumsum_series_token.values,4))},
+                        'sum_type':{'values':list(sum_series_type.astype(int))},
+                        'cumsum_type':{'values':list(np.round(cumsum_series_type.values,4))}}
+            self.print_time('clause_stats2')
+
+
+            for k in set(['cumsum_token','cumsum_type']):
+                a,b,c,d = self.fit_sigmoid((stats_dict[k]['values'][1:-1]),range(6))
+                stats_dict[k]['constants']=[a,b,c,d]
+                if k == 'cumsum_token':
+                    stats_dict['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
+                                        #'ninety_five':[self.ninety_five(cumsum_series_token)],
+                                        'ninety_five':[self.estimate_95(df_lemma[df_lemma['CEFR']>=-1]['CEFR'].values)],
+                                        'fit_error':[self.fit_error(stats_dict[k]['values'][2:-1],range(1,6),a,b,c,d)]}
+                    
+            self.print_time('stats')
+
+            if 'final_levels' in self.outputs or 'tense_stats' in self.outputs or 'modified_final_levels' in self.outputs:
+                if tense_stats["level"]["fit_error"][0]>=0.05:
+                    tense_level = tense_stats["level"]["ninety_five"][0]
+                else:
+                    tense_level = tense_stats["level"]["fit_curve"][0]
+                # if clause_stats["level"]["fit_error"][0]>=0.1:
+                #     clause_level = clause_stats["level"]["ninety_five"][0]
+                # else:
+                #     clause_level = clause_stats["level"]["fit_curve"][0]
+                if stats_dict["level"]["fit_error"][0]>=0.1:
+                    vocabulary_level = stats_dict["level"]["ninety_five"][0]
+                else:
+                    vocabulary_level = stats_dict["level"]["fit_curve"][0]
+
+                sentence_level = np.percentile(sentence_levels,80)
+                
+                general_level = (max([vocabulary_level,tense_level,clause_level])+sentence_level)/2
+
+                final_levels = {'general_level':max(0,min(round(general_level,1),6)),
+                                'vocabulary_level':max(0,min(round(vocabulary_level,1),6)),
+                                'tense_level':max(0,min(round(tense_level,1),6)),
+                                'clause_level':max(0,min(round(clause_level,1),6)),
+                                'sentence_level':max(0,min(round(sentence_level,1),6))}
+            self.print_time('final_levels')
+
+            if 'modified_final_levels' in self.outputs:
+                df_lemma_temp2 = df_lemma.copy()
+                buttom_level = max(tense_level,clause_level-0.5)
+                wordlist_dfs = []
+                ignored_words = []
+                modified_final_levels = []
+                if final_levels['vocabulary_level']>buttom_level and int(final_levels['vocabulary_level'])>0:
+                    for l in reversed(range(6)):
+                        if l<=buttom_level:
+                            break
+                        wordlist = wordlists.get(l)
+                        if wordlist:
+                            wordlist = pd.DataFrame(wordlist)
+                            wordlist_dfs.append(wordlist[wordlist['size']>=3])
+                    if len(wordlist_dfs)>0:
+                        difficult_words = pd.concat(wordlist_dfs).sort_values('size').to_dict('records')
+                        for x in difficult_words:
+                            for i,row in enumerate(df_lemma_temp2.to_dict('records')):
+                                if x['lemma']==row['lemma'] and x['pos']==row['pos']:
+                                    df_lemma_temp2.iat[i,4] = -1
+                            ignored_words.append(x['lemma']+"_"+x['pos'])
+                            modified_vocabulary_level = self.estimate_95(df_lemma_temp2['CEFR'].values)
+                            modified_general_level = (max([modified_vocabulary_level,tense_level,clause_level])+sentence_level)/2
+                            temp = {'ignored_words':ignored_words+[],'final_levels':{'general_level':min(round(modified_general_level,1),6),
+                                                                                                        'vocabulary_level':min(round(modified_vocabulary_level,1),6),
+                                                                                                        'tense_level':min(round(tense_level,1),6),
+                                                                                                        'clause_level':min(clause_level,6)}}
+                            temp['final_levels_str'] = {k:self.float2cefr(v) for k,v in temp['final_levels'].items()}
+                            temp['exam_stats'] = self.float2exams(temp['final_levels']['general_level'])
+                            modified_final_levels.append(temp)
+                            if modified_vocabulary_level<=min(buttom_level,int(buttom_level)+0.5):
+                                break
+
+            self.print_time('modified_final_levels')
+
+            result_dict = {}
+            if 'sentences' in self.outputs:
+                result_dict['sentences'] = sentences
+                result_dict['text_tagged'] = self.tag_text(sentences)
+                #self.sentences = sentences
+            if 'wordlists' in self.outputs:
+                result_dict['wordlists'] = wordlists
+                result_dict['topic_vocabulary'] = topic_vocabulary
+                #self.wordlists = wordlists
+            if 'vocabulary_stats' in self.outputs:
+                result_dict['stats'] = stats_dict
+                #self.vocabulary_stats = stats_dict
+            if 'tense_count' in self.outputs:
+                result_dict['tense_count'] = tense_count
+                #self.tense_count = tense_count
+            if 'tense_term_count' in self.outputs:
+                result_dict['tense_term_count'] = tense_term_count
+            if 'tense_stats' in self.outputs:
+                if len(tense_count)>0:
+                    df_tense_stats = pd.DataFrame([{'tense':tense,'level':d['level'][0],'count':sum(d['size'])} for tense, d in tense_count.items()])
+                    df_tense_stats['ratio'] = np.round(df_tense_stats['count']/sum(df_tense_stats['count']),2)
+                    tense_stats['tense_summary'] = df_tense_stats.sort_values('count',ascending=False).to_dict('list')
+                else:
+                    tense_stats['tense_summary'] = {}
+                if len(tense_term_count)>0:
+                    df_tense_term_stats = pd.DataFrame([{'tense_term':term,'level':d['level'][0],'count':sum(d['size'])} for term, d in tense_term_count.items()])
+                    df_tense_term_stats['level_diff'] = np.round(general_level-df_tense_term_stats['level'],1)
+                    df_tense_term_stats['ratio'] = np.round(df_tense_term_stats['count']/sum(df_tense_term_stats['count']),2)
+                    tense_stats['tense_term_summary'] = df_tense_term_stats.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
+                else:
+                    tense_stats['tense_term_summary'] = {}
+                result_dict['tense_stats'] = tense_stats
+                #self.tense_stats = tense_stats
+            if 'clause_count' in self.outputs:
+                result_dict['clause_count'] = clause_count
+                #self.clause_count = clause_count
+            if 'clause_stats' in self.outputs:
+                result_dict['clause_stats'] = clause_stats
+                #self.clause_stats = clause_stats
+            if 'phrase_count' in self.outputs:
+                result_dict['phrase_count'] = phrase_count
+                #self.clause_count = clause_count
+            if 'final_levels' in self.outputs:
+                result_dict['final_levels'] = final_levels
+                result_dict['final_levels_str'] = {k:self.float2cefr(v) for k,v in final_levels.items()}
+                result_dict['exam_stats'] = self.float2exams(final_levels['general_level'])
+            if 'modified_final_levels' in self.outputs:
+                result_dict['modified_final_levels'] = modified_final_levels
+                #self.final_levels = final_levels
+            self.print_time('outputs')
+            self.result = result_dict
+
+        def sum_cumsum(self,df_lemma,mode='token'):
+            base = pd.Series(dict(zip(range(-1,7),[0.]*8)))
+            if mode == 'type':
+                df_lemma = df_lemma.drop_duplicates(['lemma','pos'])
+            counts = base.add(df_lemma.groupby('CEFR')['word'].agg(len),fill_value=0.)
+            if counts.sum()==0:
+                p = base
+            else:
+                p = counts/counts.sum()
+            return counts, p.cumsum()
+
+        def count_tense(self,df_lemma):
+            base = pd.Series(dict(zip(np.arange(0,5.5,0.5),[0.]*11)))
+            counts = base.add(df_lemma[~pd.isnull(df_lemma['CEFR_tense'])].groupby('CEFR_tense')['word'].agg(len),fill_value=0.)
+            if counts.sum()==0:
+                p = base
+            else:
+                p = counts/counts.sum()
+            return counts, p.cumsum()
+        
+        def count_clause(self,df_lemma):
+            base = pd.Series(dict(zip(np.arange(0,6,1),[0.]*6)))
+            max_clause = {}
+            for row in df_lemma.to_dict('records'):
+                if not pd.isnull(row['CEFR_clause']):
+                    for i in row['clause_span']:
+                        max_clause[i] = max(max_clause.get(i,0),row['CEFR_clause'])
+                elif row['id'] not in max_clause and row['pos']!='PUNCT' and row['pos']!='SPACE':
+                    max_clause[row['id']] = 0
+
+            counts = base.add(pd.Series(Counter(max_clause.values())),fill_value=0.)
+            if counts.sum()==0:
+                p = base
+            else:
+                p = counts/counts.sum()
+            return counts, p.cumsum()
+
+        def fit_sigmoid(self,cumsum_series_values,levels):
+            # [1:-1]
+            x = cumsum_series_values
+            y = levels
+
+            def func(x, a, b, c, d):
+                return a/(-b+np.exp(-x*c+d))
+
+            try:
+                popt, _ = curve_fit(func, x, y, maxfev=10000,bounds=(0.00001,np.inf))
+                a,b,c,d = popt
+            except:
+                a = 0.00001
+                b = 0.00001
+                c = 0.00001
+                d = 0.00001
+            return a,b,c,d
+
+        def fit_error(self,cumsum_series_values,levels,a,b,c,d):
+            pred = np.maximum(0,self.level2percentile(levels,a,b,c,d))
+            return np.sqrt(np.nanmean((cumsum_series_values-pred)**2))
+
+        def percentile2level(self,x,a,b,c,d):
+            return max(0,a/(-b+np.exp(-x*c+d)))
+
+        def level2percentile(self,y,a,b,c,d):
+            y = np.array(y)
+            return (d-np.log(a/y+b))/c
+
+        def estimate_95(self, levels, minimum=-1, maximum=6, step=1):
+            try:
+                cumsum = np.cumsum([Counter(levels).get(i,0) for i in np.arange(minimum,maximum+step,step)])
+                if cumsum[-1]==0:
+                    return 0
+                cumsum = cumsum/cumsum[-1]
+                for i in range(len(cumsum)-1):
+                    if cumsum[i]>=0.95:
+                        return max(0,i*step+minimum)
+                    elif cumsum[i+1]>0.95:
+                        return max(0,(i+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i]))*step+minimum)
+                return maximum
+            except:
+                return 0
+
+        def ninety_five(self,cumsum_series,default=6):
+            if cumsum_series.sum()==0:
+                return 0
+            level = default
+            try:
+                for i,v in cumsum_series.items():
+                    if v>=0.95:
+                        level = i
+                        break
+            except:
+                for i,v in cumsum_series.iteritems():
+                    if v>=0.95:
+                        level = i
+                        break
+            return level
+
+        def sentence_clause_level(self,levels):
+            if len(levels) == 0:
+                return 0
+            levels = reversed(sorted(levels))
+            X = 0
+            for i, x in enumerate(levels):
+                X += np.exp(-i)*x
+            return X
+
+        def count_cefr(self,df_lemma):
+            df_lemma = df_lemma[(df_lemma['pos']!='PUNCT')&(df_lemma['pos']!='SPACE')]
+            sum_series_token, cumsum_series_token = self.sum_cumsum(df_lemma)
+            sum_series_type, cumsum_series_type = self.sum_cumsum(df_lemma,mode='type')
+            return sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type
+
+        def start_analyze(self):
+            self.process()
+
+
+    class CEFRAnalyzer(object):
 
         def __init__(self,outer):
             self.shared_object = outer
@@ -1916,13 +4329,17 @@ class AdoTextAnalyzer(object):
             df_grammar['ratio'] = np.round(df_grammar['count']/sum(df_grammar['count']),2)
             df_grammar['tense_term'] = df_grammar.index
             return df_grammar.sort_values(['level_diff','count'],ascending=[True,False])[['tense_term','level','level_diff','count','ratio']].to_dict('list')
-            
+
+
         def tag_text(self, sentences):
             num2cefr = {-1:'CEFR_A0',0:'CEFR_A1',1:'CEFR_A2',2:'CEFR_B1',3:'CEFR_B2',4:'CEFR_C1',5:'CEFR_C2',6:'CEFR_D'}
             text_tagged = ''
             for _, s in sentences.items():
                 for i in range(len(s['pos'])):
-                    cefr = num2cefr.get(s['CEFR'][i])
+                    try:
+                        cefr = num2cefr.get(s['CEFR_vocabulary'][i])
+                    except:
+                        cefr = num2cefr.get(s['CEFR'][i])
                     if cefr:
                         text_tagged += f"<{cefr}>" + s['word'][i] + f"</{cefr}>" + ' '*s['whitespace'][i]
                     else:
@@ -2109,6 +4526,28 @@ class AdoTextAnalyzer(object):
 
             if len(dfs)>0:
                 df_lemma = pd.concat(dfs.values())
+                df_lemma['id'] = df_lemma['id'].astype(int)
+                df_lemma['word'] = df_lemma['word'].astype(str)
+                df_lemma['lemma'] = df_lemma['lemma'].astype(str)
+                df_lemma['pos'] = df_lemma['pos'].astype(str)
+                df_lemma['CEFR'] = df_lemma['CEFR'].astype(float)
+                df_lemma['whitespace'] = df_lemma['whitespace'].astype(bool)
+                df_lemma['sentence_id'] = df_lemma['sentence_id'].astype(int)
+                df_lemma['form'] = df_lemma['form'].astype(object)
+                df_lemma['tense1'] = df_lemma['tense1'].astype(object)
+                df_lemma['tense2'] = df_lemma['tense2'].astype(object)
+                df_lemma['tense_term'] = df_lemma['tense_term'].astype(object)
+                df_lemma['CEFR_tense'] = df_lemma['CEFR_tense'].astype(float)
+                df_lemma['tense_span'] = df_lemma['tense_span'].astype(object)
+                df_lemma['clause_form'] = df_lemma['clause_form'].astype(object)
+                df_lemma['clause'] = df_lemma['clause'].astype(object)
+                df_lemma['CEFR_clause'] = df_lemma['CEFR_clause'].astype(float)
+                df_lemma['clause_span'] = df_lemma['clause_span'].astype(object)
+                df_lemma['phrase'] = df_lemma['phrase'].astype(str)
+                df_lemma['phrase_span'] = df_lemma['phrase_span'].astype(object)
+                df_lemma['phrase_confidence'] = df_lemma['phrase_confidence'].astype(float)
+                df_lemma['phrase_ambiguous'] = df_lemma['phrase_ambiguous'].astype(bool)
+                df_lemma['phrase_is_idiom'] = df_lemma['phrase_is_idiom'].astype(bool)
             else:
                 df_lemma = pd.DataFrame([],columns=['id','word','lemma','pos','CEFR','whitespace','sentence_id',
                                     'form','tense1','tense2','tense_term','CEFR_tense','tense_span',
@@ -2296,7 +4735,7 @@ class AdoTextAnalyzer(object):
                         temp_dict['clause_span'][form_id[form[0]+'_'+str(form[1])]] = group['clause_span'].tolist()
                         temp_dict['sentence_id'][form_id[form[0]+'_'+str(form[1])]] = group['sentence_id'].astype(int).tolist()
                     clause_count[clause] = temp_dict
-            
+
             if self.__settings['return_phrase_count']:
                 phrase_count = {}
                 if len(dfs_phrase_count)>0:
@@ -2495,9 +4934,9 @@ class AdoTextAnalyzer(object):
                 cumsum = cumsum/cumsum[-1]
                 for i in range(len(cumsum)-1):
                     if cumsum[i]>=0.95:
-                        return i+minimum
+                        return max(0,i+minimum)
                     elif cumsum[i+1]>0.95:
-                        return i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i])
+                        return max(0,i+minimum+(0.95-cumsum[i])/(cumsum[i+1]-cumsum[i]))
                 return maximum
             except:
                 return 0
@@ -2642,535 +5081,6 @@ class AdoTextAnalyzer(object):
                 result['sentence_count'] = textstat.sentence_count(text)
                 self.result = result
 
-
-
-    class CefrSimplifier(object):
-
-        def __init__(self, outer):
-            self.shared_object = outer
-            self.result = None
-
-        def start_simplify(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, auto_retry=False, up=False):
-            n_tokens = len(gpt_tokenizer.encode(text))
-
-            n_pieces = 1
-            while n_tokens/n_pieces>1500:
-                n_pieces += 1
-            mean_piece_length = n_tokens/n_pieces
-                
-            if up:
-                n = min(n, int((4000-mean_piece_length)/(mean_piece_length*0.75)))
-            else:
-                n = min(n, int((4000-mean_piece_length)/(mean_piece_length*1.25)))
-
-            pieces = []
-            if n_pieces>1:
-                result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-                
-                piece = ''
-                for _,v in result['sentences'].items():
-                    for i in range(len(v['whitespace'])):
-                        piece += v['word'][i]+' '*v['whitespace'][i]
-                    if len(gpt_tokenizer.encode(piece))>=mean_piece_length:
-                        pieces.append(piece)
-                        piece = ''
-                if piece!='':
-                    pieces.append(piece)
-                
-            else:
-                result = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-                pieces.append(text)
-
-            before_levels = result['final_levels']
-            after_levels = None
-
-            simplifications = []
-            for piece in pieces:
-                try:
-                    candidates = self.get_simplification(piece, target_level=target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, up=up)
-                except Exception as e:
-                    return {'error':e.__class__.__name__,'detail':str(e)}
-                min_difference = 100
-                for candidate in candidates:
-                    result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                    return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                    return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-                    difference = result['final_levels']['general_level']-(target_level+target_adjustment)
-                    if difference==0:
-                        simplification = candidate
-                        after_levels = result['final_levels']
-                        break
-                    elif abs(difference)<min_difference or abs(difference)==min_difference and difference>0:
-                        simplification = candidate
-                        after_levels = result['final_levels']
-                        min_difference = abs(difference)
-                simplifications.append(simplification)
-                
-            after_text = ' '.join(simplifications)
-            
-            if n_pieces>1:
-                after_levels = self.shared_object.analyze_cefr(text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
-                
-            if after_levels is None:
-                after_levels = before_levels
-            if auto_retry and int(after_levels['general_level'])!=target_level:
-                return self.start_simplify(text, target_level, target_adjustment=target_adjustment, n=n, by_sentence=by_sentence, auto_retry=False, up=up)
-
-            self.result = {'simplified':after_text, 'before':before_levels, 'after': after_levels}
-
-        def get_simplification(self, text, target_level, target_adjustment=0.5, n=1, by_sentence=False, up=False):
-            if up:
-                int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-                max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-
-                completion = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo", n=n,
-                messages=[{"role": "user", "content": f"Rewrite this passage to make it more complex. Use mainly words at CEFR {int2cefr[target_level]} levels. Write sentences with {min_length} to {max_length} words. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
-                )
-            else:
-                int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
-
-                if target_level>0:
-                    levels = [int2cefr[i] for i in range(target_level+1)]
-                    levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-                    completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo", n=n,
-                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use mainly words at CEFR {levels} levels. Write sentences with {min_length} to {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
-                    )
-                else:
-                    completion = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo", n=n,
-                    messages=[{"role": "user", "content": f"Rewrite this passage to improve its readability. Use only words at CEFR A1 level. Write sentences with less than {max_length} words. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences. Keep the new passage about the same length as the old passage.\nPassage: " + text}]
-                    )
-
-            simplifications = []
-            for x in completion['choices']:
-                x = x['message']['content'].strip()
-                if x.lower().startswith("simplified: "):
-                    x = x[12:].strip()
-                elif x.lower().startswith("simplified version: "):
-                    x = x[20:].strip()
-                simplifications.append(x)
-            return simplifications
-
-    class CefrAdaptor(object):
-
-        def __init__(self, outer):
-            self.shared_object = outer
-            self.result = None
-
-        def divide_piece(self, piece, by='paragraph'):
-            max_length = 1000
-            if by == 'paragraph_backup':
-                max_length = 500
-
-            if by=='piece' or by == 'paragraph_backup':
-                pieces = []
-                n_pieces = int(np.ceil(len(piece.split(' '))/max_length))
-                if n_pieces<=1:
-                    return [piece]
-                else:
-                    sents = sent_tokenize(piece)
-                    length = len(sents)//n_pieces
-                    for i in range(n_pieces-1):
-                        pieces.append(' '.join(sents[length*i:length*(i+1)]))
-                    pieces.append(' '.join(sents[length*(n_pieces-1):]))
-                    return pieces
-            else:
-                if len(piece.split(' '))>500:
-                    return self.divide_paragraph(piece)
-                else:
-                    return [piece]
-
-        def start_adapt(self, text, target_level, target_adjustment=0.5, even=False, n=1, by="paragraph", auto_retry=False):
-            if by=='sentence':
-                by = "paragraph"
-            n = max(1,min(n,5))
-
-            result = self.shared_object.analyze_cefr(text,return_sentences=True, return_wordlists=False,return_vocabulary_stats=False,
-                            return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                            return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-            before_levels = result['final_levels']
-            after_levels = None
-            adaptations = []
-
-            pieces = []
-            '''
-            if by=='sentence':
-                sentence_levels = []
-                for _,v in result['sentences'].items():
-                    piece = ''
-                    for i in range(len(v['whitespace'])):
-                        piece += v['word'][i]+' '*v['whitespace'][i]
-                    pieces.append(piece)
-                    sentence_levels.append({"general_level":max(v['CEFR_vocabulary'],v['CEFR_clause']),"vocabulary_level":v['CEFR_vocabulary'],"clause_level":v['CEFR_clause']})
-            '''
-            if by=='paragraph':
-                for piece in text.split('\n'):
-                    pieces += self.divide_piece(piece, by=by)
-            else:
-                pieces = self.divide_piece(text, by=by)
-
-            if len(pieces)>0:
-                pieces_reversed = pieces[::-1]
-                pieces = []
-                for piece in pieces_reversed:
-                    if len(piece.strip().split(' '))<10 and len(pieces)>0:
-                        pieces[-1] = piece+'\n'+pieces[-1]
-                    else:
-                        pieces.append(piece)
-                if len(pieces[0].strip().split(' '))<10:
-                    pieces[1] = pieces[0]+'\n'+pieces[1]
-                    pieces = pieces[1:]
-                pieces = pieces[::-1]
-
-            n_pieces = len(pieces)
-
-            for k,piece in enumerate(pieces):
-                if len(piece.strip())==0:
-                    adaptations.append(piece)
-                    continue
-                
-                #if by=='sentence':
-                #    piece_levels = sentence_levels[k]
-                if n_pieces>1:
-                    result = self.shared_object.analyze_cefr(piece,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                    return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                    return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-                    piece_levels = result['final_levels']
-                else:
-                    piece_levels = before_levels
-
-                if int(piece_levels['vocabulary_level'])>target_level:
-                    change_vocabulary = -1
-                elif int(piece_levels['vocabulary_level'])<target_level and even:
-                    change_vocabulary = 1
-                else:
-                    change_vocabulary = 0
-
-                if int(piece_levels['clause_level'])>target_level:
-                    change_clause = -1
-                elif int(piece_levels['clause_level'])<target_level and even:
-                    change_clause = 1
-                else:
-                    change_clause = 0
-
-                if change_vocabulary==0 and change_clause==0:
-                    if int(piece_levels['general_level'])<int(target_level):
-                        change_vocabulary = 1
-                        change_clause = 1
-                    else:
-                        adaptations.append(piece)
-                        continue
-
-                openai_t0 = time.time()
-                n_self_try = 3
-                while n_self_try>0:
-                    try:
-                        '''
-                        if by=='sentence' and (change_vocabulary<0 or change_clause<0):
-                            candidates = [self.simplify_sentence(
-                                piece, target_level=target_level, target_adjustment=target_adjustment, 
-                                change_vocabulary=change_vocabulary, change_clause=change_clause, contexts=pieces[k-2:k])]
-                        '''
-                        candidates = self.get_adaptation(
-                            piece, target_level=target_level, target_adjustment=target_adjustment, n=n, 
-                            change_vocabulary=change_vocabulary, change_clause=change_clause)
-                        break
-                    except Exception as e:
-                        n_self_try -= 1
-                        if n_self_try==0:
-                            self.result = {'error':e.__class__.__name__,'detail':f"(Tried 3 times.) "+str(e)}
-                            return
-                        print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
-
-                self.shared_object.openai_time += time.time()-openai_t0
-
-                if candidates is None:
-                    return
-
-                min_difference = 100
-                min_difference_std = -1
-                adaptation = piece.strip()
-                for candidate in candidates:
-                    if len(candidate.strip().split(' '))<len(piece.strip().split(' '))*0.3:
-                        continue
-                    result = self.shared_object.analyze_cefr(candidate,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                    return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                    return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)
-
-                    if change_vocabulary:
-                        vocabulary_difference = abs(result['final_levels']['vocabulary_level']-(target_level+target_adjustment))
-                    else:
-                        vocabulary_difference = abs(result['final_levels']['vocabulary_level']-before_levels['vocabulary_level'])
-
-                    tense_difference = abs(result['final_levels']['tense_level']-(target_level+target_adjustment))
-
-                    if change_clause:
-                        clause_difference = abs(result['final_levels']['clause_level']-(target_level+target_adjustment))
-                    else:
-                        clause_difference = abs(result['final_levels']['clause_level']-before_levels['clause_level'])
-
-                    difference = vocabulary_difference+tense_difference*0.5+clause_difference
-                    difference_std = np.std([vocabulary_difference,tense_difference*0.5,clause_difference])
-                    if difference<1:
-                        adaptation = candidate
-                        after_levels = result['final_levels']
-                        break
-                    elif difference<min_difference or difference==min_difference and difference_std<min_difference_std:
-                        adaptation = candidate
-                        after_levels = result['final_levels']
-                        min_difference = difference
-                        min_difference_std = difference_std
-                adaptations.append(adaptation)
-
-            if by=='paragraph':
-                after_text = '\n'.join(adaptations)
-            else:
-                after_text = ' '.join(adaptations)
-            
-            if n_pieces>1:
-                after_levels = self.shared_object.analyze_cefr(after_text,return_sentences=False, return_wordlists=False,return_vocabulary_stats=False,
-                                return_tense_count=False,return_tense_term_count=False,return_tense_stats=False,return_clause_count=False,
-                                return_clause_stats=False,return_phrase_count=False,return_final_levels=True,return_result=True,clear_simplifier=False)['final_levels']
-                
-            if after_levels is None:
-                after_levels = before_levels
-
-            if auto_retry and by=='piece' and int(after_levels['general_level'])!=target_level:
-                return self.start_adapt(text, target_level, target_adjustment=target_adjustment, even=even, n=n, by=by, auto_retry=False)
-
-            self.result = {'adaptation':after_text, 'before':before_levels, 'after': after_levels}
-
-
-        def divide_paragraph(self, text, auto_retry=True, override_messages=None):
-            list_format = '''["content of paragraph 1", "content of paragraph 2", ...]'''
-            prompt = f'''Your task is to divide this text into several paragraphs according to the topics and return them in a Python list. The content of the paragraphs should be identical to the content from the original text.
-
-            Python list format example:
-            ```{list_format}```
-
-            Text:
-            ```{text}```
-            '''
-
-            messages = [{"role": "user", "content": prompt}]
-            
-            if override_messages is None:
-                messages_to_send = messages
-            else:
-                messages_to_send = override_messages
-
-            if len(prompt.split(' '))>1500 or len(messages_to_send)>1:
-                model_name = "gpt-3.5-turbo-16k"
-            else:
-                model_name = "gpt-3.5-turbo"
-
-            n_self_try = 3
-            while n_self_try>0:
-                try:
-                    openai_t0 = time.time()
-                    completion = openai.ChatCompletion.create(
-                        model=model_name,
-                        messages=messages_to_send
-                    )
-                    self.shared_object.openai_time += time.time()-openai_t0
-                    break
-                except Exception as e:
-                    n_self_try -= 1
-                    print(os.path.split(sys.exc_info()[2].tb_frame.f_code.co_filename)[1],'line',sys.exc_info()[2].tb_lineno, e, "Retrying",3-n_self_try)
-                    if n_self_try==0:
-                        return self.divide_piece(text, by='paragraph_backup')
-
-            
-            response = completion['choices'][0]['message']['content'].strip()
-
-            try:
-                paragraphs = ast.literal_eval(response)
-            except:
-                if auto_retry:
-                    return self.divide_paragraph(text, auto_retry=False, override_messages=messages+[{"role": completion['choices'][0]['message']['role'], "content": completion['choices'][0]['message']['content']},
-                                                                                                                {"role": "user", "content": f"The paragraphs you returned are not in Python list format. Return them as a Python list like this example: {list_format}"}])
-                else:
-                    print("The bot didn't return the paragraphs in Python list format.")
-                    return self.divide_piece(text, by='paragraph_backup')
-
-            return paragraphs
-
-
-        def get_adaptation(self, text, target_level, target_adjustment=0.5, n=1, change_vocabulary=-1, change_clause=-1):
-            int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-            levels = [int2cefr[i] for i in range(target_level+1)]
-            levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-
-            examples = '''\nExamples of replacing difficult words:
-            transport => move
-            shrink => get smaller
-            pregnancy => having a baby
-            have serious consequences => bad things will happen'''
-
-            if change_clause<0:
-                max_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level+target_adjustment-1+1.5)/np.log(1.1),0))
-                if change_vocabulary<0:
-                    prompt = f'''Your task is to rewrite this passage so that a child can easily understand.
-                    For each sentence, follow these rules:
-                    1. Keep the details. Do not just summerize.
-                    2. Replace difficult words and use mainly words at CEFR {levels} levels.
-                    3. Use no more than {max_length} words.
-                    4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-                    ''' + examples
-                elif change_vocabulary>0:
-                    prompt = f'''Your task is to replace easy words in this passage so that most of the words are at CEFR {int2cefr[target_level]} level.
-                    For each sentence, follow these rules:
-                    1. Keep the details. Do not just summerize.
-                    2. Use mainly words at CEFR {int2cefr[target_level]} level.
-                    3. Use no more than {max_length} words.
-                    4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-                    '''
-                else:
-                    prompt = f'''Your task is to rewrite this passage so that the sentence structure is simplier.
-                    For each sentence, follow these rules:
-                    1. Keep the details. Do not just summerize.
-                    2. Use only the vocabulary in the original passage.
-                    3. Use no more than {max_length} words.
-                    4. If a sentence has more than {max_length} words, break it down by seperating the subordinate clauses as new sentences.
-                    '''
-            elif change_clause>0:
-                max_length = int(round(np.log(target_level+1+target_adjustment+1.5)/np.log(1.1),0))
-                min_length = int(round(np.log(target_level+target_adjustment+1.5)/np.log(1.1),0))
-                if change_vocabulary<0:
-                    prompt = f'''Your task is to rewrite this passage to make the sentence structure more complex.
-                    For each sentence, follow these rules:
-                    1. Do not make the vocabulary more complex.
-                    2. Replace difficult words and use only words at CEFR {levels} levels so that a child can easily understand.
-                    3. Use {min_length} to {max_length} words.
-                    ''' + examples
-                elif change_vocabulary>0:
-                    prompt = f'''Your task is to rewrite this passage to make it more complex.
-                    For each sentence, follow these rules:
-                    1. Use mainly words at CEFR {int2cefr[target_level]} level.
-                    2. Use {min_length} to {max_length} words.
-                    '''
-                else:
-                    prompt = f'''Your task is to rewrite this passage to make the sentence structure more complex.
-                    For each sentence, follow these rules:
-                    1. Do not make the vocabulary more complex.
-                    2. Use only the vocabulary in the original passage.
-                    3. Use {min_length} to {max_length} words.
-                    '''
-            else:
-                if change_vocabulary<0:
-                    prompt = f'''Your task is to replace difficult words with easier ones in this passage.
-                    For each sentence, follow these rules:
-                    1. Try not to change the sentence structure.
-                    2. Replace difficult words and use only words at CEFR {levels} levels so that a child can easily understand.
-                    '''+examples
-                elif change_vocabulary>0:
-                    prompt = f'''Your task is to replace easier words with more difficult ones in this passage.
-                    For each sentence, follow these rules:
-                    1. Try not to change the sentence structure.
-                    2. Use only words at CEFR {int2cefr[target_level]} level.
-                    '''
-                else:
-                    return []
-
-            
-            n_tokens = len(gpt_tokenizer.encode(prompt)) + len(gpt_tokenizer.encode(text))*(n+1)
-
-            if n_tokens>4000:
-                model_name = "gpt-3.5-turbo-16k"
-            else:
-                model_name = "gpt-3.5-turbo"
-
-            prompt = prompt+f"\nPassage:\n```{text}```"
-
-            completion = openai.ChatCompletion.create(
-                model=model_name, n=n,
-                messages=[{"role": "user", "content": prompt}]
-            )
-
-            adaptations = []
-            for x in completion['choices']:
-                x = x['message']['content'].strip()
-                if x.lower().startswith("simplified: "):
-                    x = x[12:].strip()
-                elif x.lower().startswith("simplified version: "):
-                    x = x[20:].strip()
-                adaptations.append(x)
-            return adaptations
-            
-        def simplify_sentence(self, sentence, target_level, target_adjustment, change_vocabulary=False, change_clause=True, contexts=[]):
-            change_vocabulary = int(change_vocabulary)
-            change_clause = int(change_clause)
-            reference = False
-
-            if change_vocabulary!=0:
-                int2cefr = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
-                levels = [int2cefr[i] for i in range(target_level+1)]
-                levels = ', '.join(levels[:-1]) + f' and {levels[-1]}'
-            if change_clause!=0:
-                max_length = int(round(np.log(target_level+target_adjustment+0.5+1.5)/np.log(1.1),0))
-                min_length = max(1, int(round(np.log(target_level+target_adjustment-0.5+1.5)/np.log(1.1),0)))
-
-            if len(contexts)>0:
-                context = ' '.join(contexts[-2:])
-            else:
-                context = ''
-
-            examples = '''\nExamples of replacing difficult words:
-            transport => move
-            shrink => get smaller
-            pregnancy => having a baby
-            have serious consequences => bad things will happen
-            anaesthesia => using drugs to make people feel no pain'''
-
-            if change_clause==0 or change_clause<0 and len(sentence.split(' '))<=max_length:
-                if change_vocabulary<0:
-                    prompt = f"Your task is to rewrite this sentence without changing its meaning. Replace difficult words with CEFR {levels} words so that a child can easily understand.\n"+examples
-                elif change_vocabulary>0:
-                    prompt = f"Your task is to rewrite this sentence without changing its meaning. Replace easy words with CEFR {int2cefr[target_level]} words."
-                else:
-                    return sentence
-            elif change_clause<0:
-                if change_vocabulary<0:
-                    reference = True
-                    prompt = f'''Your task is to rewrite this sentence so that a child can easily understand. Follow these steps:
-                    1. Recognize the subordinate clauses in the sentence.
-                    2. Break down the sentence into several shorter sentences according to its subordinate clauses, with no more than {max_length} words in each new sentence.
-                    3. Replace difficult words and use mainly words at CEFR {levels} levels.
-                    '''+examples
-                    # 4. If some reference is unclear, refer to the previous sentences, but don't include them in your sentence.
-                else:
-                    prompt = f'''Your task is to break down this sentence into several shorter sentences. Follow these steps:
-                    1. Recognize the subordinate clauses in the sentence.
-                    2. Break down the sentence into several shorter sentences according to its subordinate clauses, with no more than {max_length} words in each new sentence.
-                    3. Use only the vocabulary from the original sentence.
-                    4. Return the result without line breaks.'''
-            else:
-                return sentence
-
-            #if reference and context!='':
-            #    prompt += f'\nPrevious sentences:\n```{context}```'
-
-            completion = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo", n=1,
-                messages=[{"role": "user", "content": prompt+f"\nSentence:\n```{sentence}```"}]
-            )
-            sentence = completion['choices'][0]['message']['content'].strip().replace('\n',' ')
-
-            if '(' in sentence[-10:]:
-                sentence = sentence[:sentence.rfind('(')]
-            return sentence
 
 class AdoVideoAnalyzer(object):
     def __init__(self, text_analyser, temp_dir='temp'):
