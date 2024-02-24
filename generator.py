@@ -44,7 +44,8 @@ class AdoQuestionGenerator(object):
         self.client = None
         self.analyser = text_analyser
         
-    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
+    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, 
+                           answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
@@ -425,7 +426,8 @@ class AdoTextGenerator(object):
             custom_dictionary.update(settings.get('custom_dictionary',{}))
         default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
         default_settings.update(settings)
-        del default_settings['ignore_keywords']
+        if 'ignore_keywords' in default_settings:
+            del default_settings['ignore_keywords']
         settings = default_settings
         settings['custom_dictionary'] = custom_dictionary
         if grammar:
