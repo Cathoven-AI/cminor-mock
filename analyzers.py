@@ -27,6 +27,8 @@ from ftlangdetect import detect
 from sentence_transformers import SentenceTransformer
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
 
+pd.set_option('future.no_silent_downcasting', True)
+
 # Lexile files
 neural_model = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20220410_2.h5'),compile=False)
 neural_model2 = tensorflow.keras.models.load_model(os.path.join(BASE_DIR, 'files/model_files/lexile_20240208'),compile=False)
@@ -151,6 +153,7 @@ class AdoTextAnalyzer(object):
         self.init()
         self.openai_api_key = openai_api_key
         self.detect = detect
+        self.v = 1
 
     def init(self):
         self.text = None
@@ -183,24 +186,24 @@ class AdoTextAnalyzer(object):
             # if detect(text.replace('\n',' '))['lang'] != 'en':
             #     raise InformError("Language not supported. Please use English.")
 
-            if text!=self.text or custom_dictionary!={}:
-                self.init()
-                self.text = text
-
             temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
                             'return_sentences':return_sentences, 'return_wordlists':return_wordlists,'return_vocabulary_stats':return_vocabulary_stats,
                             'return_tense_count':return_tense_count,'return_tense_term_count':return_tense_term_count,'return_tense_stats':return_tense_stats,'return_clause_count':return_clause_count,
                             'return_clause_stats':return_clause_stats,'return_phrase_count':return_phrase_count,'return_final_levels':return_final_levels,'return_modified_final_levels':return_modified_final_levels}
 
-            if self.cefr is None or temp_settings!=self.cefr.print_settings():
-                if self.doc is None:
-                    self.make_doc()
-                self.cefr = self.CEFRAnalyzer(self)
-                self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
-                            return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                            return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                            return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,
-                            return_modified_final_levels=return_modified_final_levels)
+            if self.v!=v or text!=self.text or custom_dictionary!={} or temp_settings!=self.cefr.print_settings():
+                self.init()
+                self.v = v
+                self.text = text
+
+            if self.doc is None:
+                self.make_doc()
+            self.cefr = self.CEFRAnalyzer(self)
+            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
+                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
+                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
+                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,
+                        return_modified_final_levels=return_modified_final_levels)
 
             if return_result:
                 return self.cefr.result
@@ -215,8 +218,9 @@ class AdoTextAnalyzer(object):
             if len(invalid_settings)>0:
                 raise InformError(f"Invalid setting: {', '.join(invalid_settings)}")
             
-            if text!=self.text or self.cefr2.outputs != outputs or self.cefr2.settings != settings:
+            if self.v!=v or text!=self.text or self.cefr2.outputs != outputs or self.cefr2.settings != settings:
                 self.init()
+                self.v = v
                 self.text = text
                 
                 if 'all' in outputs:
@@ -259,8 +263,9 @@ class AdoTextAnalyzer(object):
         #     raise InformError("Language not supported. Please use English.")
             
         text = self.clean_text(text)
-        if text!=self.text:
+        if self.v!=v or text!=self.text:
             self.init()
+            self.v = v
             self.text = text
         if self.doc is None:
             self.make_doc()
