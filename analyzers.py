@@ -184,13 +184,7 @@ class AdoTextAnalyzer(object):
             #     raise InformError("Language not supported. Please use English.")
 
             if text!=self.text or custom_dictionary!={}:
-                self.doc = None
-                self.cefr = None
-                self.readability = None
-                self.catile = None
-                if clear_simplifier:
-                    self.simplifier = None
-                    self.adaptor = None
+                self.init()
                 self.text = text
 
             temp_settings = {'propn_as_lowest':propn_as_lowest,'intj_as_lowest':intj_as_lowest,'keep_min':keep_min,
@@ -232,6 +226,8 @@ class AdoTextAnalyzer(object):
                 default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
                 default_settings.update(settings)
                 self.cefr2.settings = default_settings
+                self.make_doc()
+            if self.doc is None:
                 self.make_doc()
             self.cefr2.start_analyze()
             self.cefr.result = self.cefr2.result
