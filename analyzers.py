@@ -2466,6 +2466,7 @@ class AdoTextAnalyzer(object):
         
         def cefr2length(self, level):
             a,b = [0.20722492, 3.30842234]
+            level = max(0,min(level,5.9))
             return round(max(1,(b-np.log(6/level-1))/a)) if level else 1
 
         def process_input(self,reference_word,reference_pos,reference_CEFR,word,pos,max_length=38):
