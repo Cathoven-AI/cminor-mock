@@ -332,7 +332,9 @@ class AdoQuestionGenerator(object):
                     return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
-
+        elif len(questions)<n and auto_retry>0:
+            return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
+        
         if kind=='essay_question':
             for i in range(len(questions)):
                 questions[i]['answer'] = questions[i]['answer'].capitalize()
@@ -468,7 +470,7 @@ class AdoTextGenerator(object):
             requirements.append("Use these grammar structures many times:\n"+grammar_list)
         
         requirements.append(f"It should be around {n_words} words.")
-        #requirements.append('''Don't use style text.''')
+        requirements.append("Use proper paragraphing to organise the content like a piece of normal writing. Don't just write everything in one single paragraph.")
         requirements.append('''Arrange the result in json format like this:\n```{"text": the text}```\nIt should be parsed directly. Don't include other notes, tags or comments.''')
         
         if level<=2:
