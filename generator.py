@@ -504,8 +504,6 @@ In the meantime, the text should meet the following requirements:
         model = 'gpt-4-1106-preview'
         n_trials = len(temp_results)+1
         print(f"Trying {n_trials}")
-        # if n_trials>=3:
-        #     model = "gpt-4"
         for i in range(3):
             try:
                 completion = self.client.chat.completions.create(
