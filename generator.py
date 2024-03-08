@@ -437,7 +437,6 @@ class AdoTextGenerator(object):
         else:
             model = 'gpt-3.5-turbo'
 
-
         return self.execute_prompt(prompt,level,temp_results=[], model=model, settings=settings, outputs=outputs)
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
