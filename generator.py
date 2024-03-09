@@ -284,7 +284,7 @@ class AdoQuestionGenerator(object):
             if text is not None:
                 content += f'''{material_format}:\n```{text}```\n\n'''
 
-            json_format = '''{"text": \'\'\'text with blanks'\'\'\, questions:[{"choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***explanation_json***}, ...]}'''
+            json_format = '''{"text": text with blanks, questions:[{"choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 0***explanation_json***}, {"question": "What is this?", "choices": ["Some choice","Some choice","Some choice","Some choice"], "answer_index": 2***explanation_json***}, ...]}'''
             json_format = json_format.replace('***explanation_json***',explanation_json)
             format_type = 'dictionary'
             content += f'''Arrange the text with blanks and questions as a Python dictionary in this format:
@@ -295,7 +295,7 @@ class AdoQuestionGenerator(object):
             2. The text with blanks will be the value of the 'text' key. The paragraph format and new lines should be the same as the original text.
             3. "questions" is a list of dictionaries. Each dictionary is one question with "choices", and "answer_index".
             4. The answer_index ranges from 0 to 3. The distribution of answer_index values (0, 1, 2, 3) should be balanced.
-            5. Use triple quotes to wrap the value of "text" because there may be line breaks. 
+            5. Excape new lines for the value of "text" because there may be line breaks.
             6. It can be parsed using ast.literal_eval in Python.
             '''
 
@@ -471,7 +471,7 @@ class AdoTextGenerator(object):
         
         requirements.append(f"It should be around {n_words} words.")
         requirements.append("Use proper paragraphing to separate and organise the content into a few paraghraphs. Don't just write everything in one single paragraph.")
-        requirements.append('''Arrange the result in a python dictionary like this:\n```{"text": \'\'\'the text'\'\'\}```\n Use triple quotes to wrap the value of "text" because there may be line breaks. It should be parsed directly. Don't include other notes, tags or comments.''')
+        requirements.append('''Arrange the result in a python dictionary like this:\n```{"text": the text}```\n Excape new lines for the value of "text" because there may be line breaks. It should be parsed directly. Don't include other notes, tags or comments.''')
         
         if level<=2:
             prompt = f'''
