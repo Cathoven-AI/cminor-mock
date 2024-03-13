@@ -412,11 +412,11 @@ class AdoTextGenerator(object):
         
         if settings.get('search') is not None:
             if settings['search']['function'] == 'search_words':
-                return self.search_words(**settings['search']['parameters'])
+                return {"words":self.search_words(**settings['search']['parameters'])}
             elif settings['search']['function'] == 'quick_wordlist':
-                return self.quick_wordlist(**settings['search']['parameters'])
+                return {"words":self.quick_wordlist(**settings['search']['parameters'])}
             elif settings['search']['function'] == 'get_minimal_pairs':
-                return self.get_minimal_pairs(**settings['search']['parameters'])
+                return {"words":self.get_minimal_pairs(**settings['search']['parameters'])}
         
         if grammar is not None and not isinstance(grammar,list):
             raise InformError("grammar must be a list of strings.")
