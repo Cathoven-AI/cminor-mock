@@ -567,6 +567,7 @@ In the meantime, the text should meet the following requirements:
     
 
     def search_words(self,phonemes,n_syllables=None,cefr=None,n=100000,ignore_stress=True):
+
         df_temp = df_us.copy()
         
         if isinstance(n_syllables,int):
@@ -575,8 +576,12 @@ In the meantime, the text should meet the following requirements:
             df_temp = df_temp[(df_temp['n_syllables']>=n_syllables[0])&(df_temp['n_syllables']<=n_syllables[1])]
         if isinstance(cefr,int):
             df_temp = df_temp[df_temp['cefr']==cefr]
+        elif isinstance(cefr,str):
+            cefr = level_str2int[cefr]
+            df_temp = df_temp[df_temp['cefr']==cefr]
         elif cefr:
-            df_temp = df_temp[(df_temp['cefr']>=cefr[0])&(df_temp['cefr']<=cefr[1])]
+            cefr = [level_str2int.get(x,x) for x in cefr]
+            df_temp = df_temp[df_temp['cefr'].apply(lambda x: x in cefr)]
         df_temp = df_temp.sample(frac=1)
         sounds = []
         positions = []
