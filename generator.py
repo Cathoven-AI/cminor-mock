@@ -1,8 +1,11 @@
 import numpy as np
-import json, ast, warnings, os, sys, re, difflib, httpx
+import json, ast, warnings, os, sys, re, difflib, httpx, copy, itertools, pickle
 from openai import OpenAI
 from nltk.tokenize import sent_tokenize
 from .utils import InformError, clean_target_level_input
+
+BASE_DIR = os.path.dirname(os.path.realpath(__file__))
+df_us = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/pronunciation_table_us.pkl'),'rb'))
 
 def parse_response(response):
     try:
@@ -374,6 +377,8 @@ class AdoQuestionGenerator(object):
                 return None
         return questions
     
+    
+
 class AdoTextGenerator(object):
     def __init__(self, text_analyser, openai_api_key=None):
         self.openai_api_key = openai_api_key
@@ -404,6 +409,15 @@ class AdoTextGenerator(object):
     def create_text(self,level,n_words=300,topic=None,keywords=None,grammar=None,genre=None,
                     settings={'ignore_keywords':True,'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
                     outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels']):
+        
+        if settings.get('search') is not None:
+            if settings['search']['function'] == 'search_words':
+                return self.search_words(**settings['search']['parameters'])
+            elif settings['search']['function'] == 'quick_wordlist':
+                return self.quick_wordlist(**settings['search']['parameters'])
+            elif settings['search']['function'] == 'get_minimal_pairs':
+                return self.get_minimal_pairs(**settings['search']['parameters'])
+        
         if grammar is not None and not isinstance(grammar,list):
             raise InformError("grammar must be a list of strings.")
         if keywords is not None and not isinstance(keywords,list):
@@ -550,17 +564,164 @@ In the meantime, the text should meet the following requirements:
                 text = '\n'.join(lines)
             return {'text':text, 'result':result}
 
-    # def parse_response(self, response):
-    #     try:
-    #         response = response[response.index('{'):response.rfind('}')+1]
-    #         text = json.loads(response, strict=False)['text']
-    #     except:
-    #         try:
-    #             response = response[response.index('{'):response.rfind('}')+1]
-    #             text = ast.literal_eval(response)['text']
-    #         except:
-    #             return None
-    #     return text
+    
+
+    def search_words(self,phonemes,n_syllables=None,cefr=None,n=100000,ignore_stress=True):
+        df_temp = df_us.copy()
+        
+        if isinstance(n_syllables,int):
+            df_temp = df_temp[df_temp['n_syllables']==n_syllables]
+        elif n_syllables:
+            df_temp = df_temp[(df_temp['n_syllables']>=n_syllables[0])&(df_temp['n_syllables']<=n_syllables[1])]
+        if isinstance(cefr,int):
+            df_temp = df_temp[df_temp['cefr']==cefr]
+        elif cefr:
+            df_temp = df_temp[(df_temp['cefr']>=cefr[0])&(df_temp['cefr']<=cefr[1])]
+        df_temp = df_temp.sample(frac=1)
+        sounds = []
+        positions = []
+        for phoneme in phonemes:
+            if isinstance(phoneme['sound'],str):
+                sounds.append([phoneme['sound']])
+            else:
+                sounds.append(phoneme['sound'])
+            positions.append(phoneme.get('position',[None,None]))
+        filter_ = []
+        n_matched = 0
+        for row in df_temp.to_dict('records'):
+            matched = True
+            for i in range(len(sounds)):
+                sound = sounds[i]
+                position = positions[i]
+                if ignore_stress:
+                    arpabet = np.array(row['arpabet_uncased'],dtype='object')
+                else:
+                    arpabet = np.array(row['arpabet'],dtype='object')
+
+                    
+                if isinstance(position[0],int):
+                    position[0] = [position[0]]
+                if isinstance(position[1],int):
+                    position[1] = [position[1]]
+
+
+                if position[0] is None and position[1] is None:
+                    l = arpabet
+                elif position[0] is None:
+                    l = arpabet[:,position[1]]
+                else:
+                    position[0] = [x for x in position[0] if x<row['n_syllables']]
+                    if len(position[0])==0:
+                        matched = False
+                        break
+                    if position[1] is None:
+                        l = arpabet[position[0],:]
+                    else:
+                        l = arpabet[position[0],position[1]]
+                if len(l.shape)==3:
+                    l = itertools.chain.from_iterable(l)
+                else:
+                    l = l.flatten()
+
+                index = np.array(sound)!='@'
+                if not any(index):
+                    l = [np.array_equal(x,sound) for x in l if len(x)==len(index)]
+                else:
+                    l = [np.array_equal(np.array(list(x))[index],np.array(sound)[index]) for x in l if len(x)==len(index)]
+
+                matched = len(l)>0 and any(l)
+                
+                if not matched:
+                    break
+            filter_.append(matched)
+            if matched:
+                n_matched += 1
+                if n_matched>=n:
+                    break
+        filter_ += [False]*(len(df_temp)-len(filter_))
+        return df_temp[filter_]
+
+    def quick_wordlist(self,phoneme,stress='ignore',position=None,n_syllables=None,cefr=None,exclude_spelling=None,n=10):
+        if stress=='stressed':
+            result = self.search_words([{'sound':[phoneme.upper()]}], ignore_stress=False, cefr=cefr, n_syllables=n_syllables, n=1000000)
+        elif stress=='unstressed':
+            result = self.search_words([{'sound':[phoneme.lower()]}], ignore_stress=False, cefr=cefr, n_syllables=n_syllables, n=1000000)
+        else:
+            result = self.search_words([{'sound':[phoneme.lower()]}], ignore_stress=True, cefr=cefr, n_syllables=n_syllables, n=1000000)
+        
+        if exclude_spelling is not None and len(result)>0:
+            if exclude_spelling.startswith('-') and exclude_spelling.endswith('-'):
+                exclude_spelling = exclude_spelling.strip('-')
+                result = result[result['headword'].apply(lambda x: not x.lower().startswith(exclude_spelling) and not x.lower().startswith(exclude_spelling) and exclude_spelling not in x.lower())]
+            elif exclude_spelling.startswith('-') and not exclude_spelling.endswith('-'):
+                exclude_spelling = exclude_spelling.strip('-')
+                result = result[result['headword'].apply(lambda x: not x.lower().startswith(exclude_spelling))]
+            elif not exclude_spelling.startswith('-') and exclude_spelling.endswith('-'):
+                exclude_spelling = exclude_spelling.strip('-')
+                result = result[result['headword'].apply(lambda x: not x.lower().endsswith(exclude_spelling))]
+            else:
+                result = result[result['headword'].apply(lambda x: exclude_spelling not in x.lower())]
+
+        if position is not None and len(result)>0:
+            if position=='initial':
+                result = result[result['arpabet'].apply(lambda x: sum(x[0],[])[0]==phoneme)]
+            elif position=='final':
+                result = result[result['arpabet'].apply(lambda x: sum(x[-1],[])[-1]==phoneme)]
+            else:
+                result = result[result['arpabet'].apply(lambda x: phoneme in sum(x[-1],[])[1:-1] and sum(x[0],[])[0]!=phoneme and sum(x[-1],[])[-1]!=phoneme)]
+        
+        result = result.sample(min(n,len(result)))
+        words = []
+        for row in result.to_dict('records'):
+            respelling = row['syllables']
+            respelling[row['i_stressed']] = respelling[row['i_stressed']].upper()
+            words.append({'word':row['headword'],'pronunciation':'-'.join(respelling)})
+        return words
+
+    def get_minimal_pairs(self, phoneme1, phoneme2, n_syllables=[1,2],n=10):
+
+        def flatten_list(nested_list):
+            result = []
+            for element in nested_list:
+                if isinstance(element, list) or isinstance(element, np.ndarray):
+                    # If the element is a list, extend the result by the flattened element
+                    result.extend(flatten_list(element))
+                else:
+                    # If the element is not a list, append it to the result
+                    result.append(element)
+            return result
+        
+        if phoneme1==phoneme2:
+            return []
+        pairs = []
+        for i in n_syllables:
+            i -= 1
+            df1 = self.search_words([{'sound':[phoneme1],'position':[i,None]}], ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
+            df2 = self.search_words([{'sound':[phoneme2],'position':[i,None]}], ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
+        
+            arpabet_str = []
+            for x in df1['arpabet'].values:
+                s = copy.deepcopy(x)
+                s[i][1] = '@'
+                arpabet_str.append('-'.join(flatten_list(s)))
+            df1['arpabet_str'] = arpabet_str
+            df1 = df1.drop_duplicates('arpabet_str')
+        
+            arpabet_str = []
+            for x in df2['arpabet'].values:
+                s = copy.deepcopy(x)
+                s[i][1] = '@'
+                arpabet_str.append('-'.join(flatten_list(s)))
+            df2['arpabet_str'] = arpabet_str
+            df2 = df2.drop_duplicates('arpabet_str')
+        
+            for row in df1.to_dict('records'):
+                temp = df2[df2['arpabet_str']==row['arpabet_str']]
+                if len(temp)>0:
+                    pairs.append([row['headword'],temp.iloc[0]['headword']])
+                    if len(pairs)>=n:
+                        return pairs
+        return pairs
 
 
 class AdoWritingAssessor(object):
@@ -798,3 +959,5 @@ Writing:
                 both.append(word)
 
         return ' '.join(marked_str1).replace(' \n ','\n'),' '.join(marked_str2).replace(' \n ','\n'), ' '.join(both).replace(' \n ','\n')
+    
+    

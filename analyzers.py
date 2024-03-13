@@ -22,6 +22,7 @@ from .utils import InformError
 from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
 from nltk.tokenize import sent_tokenize
+from nltk import word_tokenize
 from transformers import GPT2Tokenizer
 from ftlangdetect import detect
 from sentence_transformers import SentenceTransformer
@@ -114,6 +115,12 @@ cefr_wo_pos = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/ce
 cefr_w_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_w_pos_sup.pkl'),'rb'))
 cefr_wo_pos_sup = pickle.load(open(os.path.join(BASE_DIR, 'files/model_files/cefr/cefr_wo_pos_sup.pkl'),'rb'))
 
+df_cefr_prim = pd.DataFrame(cefr_w_pos_min_prim, index=['level']).T.rename_axis(['lemma','pos']).reset_index()
+df_cefr = pd.DataFrame(cefr_w_pos, index=['level']).T.rename_axis(['lemma','pos']).reset_index()
+df_cefr_sup = pd.DataFrame(cefr_w_pos_sup, index=['level']).T.rename_axis(['lemma','pos']).reset_index()    
+wordlist_dicts = [df_cefr_prim,df_cefr,df_cefr_sup]
+
+
 df_reference_words = pd.concat([pd.DataFrame(pd.Series(cefr_w_pos_min_prim)).reset_index(),pd.DataFrame(pd.Series(cefr_w_pos)).reset_index()]).drop_duplicates(['level_0','level_1'])
 df_temp = df_reference_words[df_reference_words['level_0'].apply(lambda x: str(x).lower().endswith('e') and len(str(x))>=4)].copy()
 df_temp['level_0'] = [x[:-1] for x in df_temp['level_0'].values]
@@ -172,7 +179,7 @@ class AdoTextAnalyzer(object):
             x = fine_lemmatize(x,self.doc,nlp)
 
     def analyze_cefr(self,text,
-                     settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                     settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}},
                      outputs=['final_levels'],
                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,custom_dictionary={},
                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
@@ -213,7 +220,7 @@ class AdoTextAnalyzer(object):
             invalid_outputs = set(outputs)-all_outputs
             if len(invalid_outputs)>0:
                 raise InformError(f"Invalid output type: {', '.join(invalid_outputs)}")
-            all_settings = {'propn_as_lowest','intj_as_lowest','keep_min','custom_dictionary'}
+            all_settings = {'propn_as_lowest','intj_as_lowest','keep_min','custom_dictionary','as_wordlist'}
             invalid_settings = set(settings.keys())-all_settings
             if len(invalid_settings)>0:
                 raise InformError(f"Invalid setting: {', '.join(invalid_settings)}")
@@ -227,7 +234,7 @@ class AdoTextAnalyzer(object):
                     self.cefr2.outputs = {'sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','phrase_count','final_levels','modified_final_levels'}
                 else:
                     self.cefr2.outputs = set(outputs)
-                default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}}
+                default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}}
                 default_settings.update(settings)
                 self.cefr2.settings = default_settings
                 self.make_doc()
@@ -1675,6 +1682,28 @@ class AdoTextAnalyzer(object):
             self.result = None
             self.embeddings = {}
 
+
+        def get_individual_word_cefr(self, word):
+
+            def search_word(word, df_dict):
+                x = word.lower()
+                df_temp = df_dict[df_dict['lemma']==x]
+                if len(df_temp)>0:
+                    df_temp = df_temp.sort_values('level')
+                    row = {'pos':df_temp.iloc[0]['pos'], 'level':df_temp.iloc[0]['level']}
+                    return row
+                return
+
+            row = None
+            for df_dict in wordlist_dicts:
+                row = search_word(word,df_dict)
+                if row is not None:
+                    break
+            if row is None:
+                row = {'pos':'X', 'level':6}
+
+            return row['pos'], row['level']
+
         def get_word_cefr(self,word_lemma,word_orth="",cefr_w_pos_prim=cefr_w_pos_min_prim,cefr_wo_pos_prim=cefr_wo_pos_min_prim):
             if word_orth=="":
                 word_orth = word_lemma
@@ -2687,6 +2716,7 @@ class AdoTextAnalyzer(object):
             phrase_time = 0
             typing_time = 0
             self.t0 = time.time()
+
             for sent in self.shared_object.doc.sents:
                 n_sent = len(dfs)
                 for count_token, x in enumerate(sent):
@@ -2720,6 +2750,9 @@ class AdoTextAnalyzer(object):
 
                     ###################################
 
+
+
+
                     if x.pos_ == 'PUNCT' or x.pos_ == 'SPACE':
                         rows.append({'id':x.i,'word':x.orth_,'lemma':x.lemma_,'pos':x.pos_,'CEFR':-2,'whitespace':bool(is_white_space),'sentence_id':n_sent,
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
@@ -2730,6 +2763,13 @@ class AdoTextAnalyzer(object):
                                     'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
                                     'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
                                     'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
+                    elif self.settings['as_wordlist']:
+                        pos, level = self.get_individual_word_cefr(x.orth_)
+                        rows.append({'id':x.i,'word':x.orth_,'lemma':x.orth_.lower(),'pos':pos,'CEFR':level,'whitespace':bool(is_white_space),'sentence_id':n_sent,
+                                    'form':None,'tense1':None,'tense2':None,'CEFR_tense':None,'tense_span':None,'tense_term':None,
+                                    'clause_form':None,'clause':None,'CEFR_clause':None,'clause_span':None,
+                                    'phrase':None, 'phrase_span':None,'phrase_confidence':None, 'phrase_ambiguous':True, 'phrase_is_idiom':True})
+                    
                     else:
                         skip = False
                         if x.pos_ == 'INTJ' and self.settings['intj_as_lowest']==True:
@@ -3271,6 +3311,10 @@ class AdoTextAnalyzer(object):
                 #self.final_levels = final_levels
             self.print_time('outputs')
             self.result = result_dict
+
+
+
+
 
         def sum_cumsum(self,df_lemma,mode='token'):
             base = pd.Series(dict(zip(range(-1,7),[0.]*8)))
