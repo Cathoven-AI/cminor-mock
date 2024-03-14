@@ -417,6 +417,8 @@ class AdoTextGenerator(object):
                 return {"words":self.quick_wordlist(**settings['search']['parameters'])}
             elif settings['search']['function'] == 'get_minimal_pairs':
                 return {"words":self.get_minimal_pairs(**settings['search']['parameters'])}
+            elif settings['search']['function'] == 'get_blends':
+                return {"words":self.get_blends(**settings['search']['parameters'])}
         
         if grammar is not None and not isinstance(grammar,list):
             raise InformError("grammar must be a list of strings.")
@@ -646,13 +648,13 @@ In the meantime, the text should meet the following requirements:
         filter_ += [False]*(len(df_temp)-len(filter_))
         return df_temp[filter_]
 
-    def quick_wordlist(self,phoneme,stress='ignore',position=None,n_syllables=None,cefr=None,exclude_spelling=None,n=10):
+    def quick_wordlist(self,phonemes,stress='ignore',position=None,n_syllables=None,cefr=None,exclude_spelling=None,n=10):
         if stress=='stressed':
-            result = self.search_words([{'sound':[phoneme.upper()]}], ignore_stress=False, cefr=cefr, n_syllables=n_syllables, n=1000000)
-        elif stress=='unstressed':
-            result = self.search_words([{'sound':[phoneme.lower()]}], ignore_stress=False, cefr=cefr, n_syllables=n_syllables, n=1000000)
+            phonemes = [x.upper() for x in phonemes]
         else:
-            result = self.search_words([{'sound':[phoneme.lower()]}], ignore_stress=True, cefr=cefr, n_syllables=n_syllables, n=1000000)
+            phonemes = [x.lower() for x in phonemes]
+        
+        result = self.search_words([{'sound':phonemes}], ignore_stress=stress=='ignore', cefr=cefr, n_syllables=n_syllables, n=1000000)
         
         if exclude_spelling is not None and len(result)>0:
             if exclude_spelling.startswith('-') and exclude_spelling.endswith('-'):
@@ -668,17 +670,22 @@ In the meantime, the text should meet the following requirements:
                 result = result[result['headword'].apply(lambda x: exclude_spelling not in x.lower())]
 
         if position is not None and len(result)>0:
-            if position=='initial':
-                result['flatten'] = result['arpabet'].apply(lambda x: sum(x[0],[]))
-                result = result[result['flatten'].apply(lambda x: x[0]==phoneme if len(x)>0 else False)]
-            elif position=='final':
-                result['flatten'] = result['arpabet'].apply(lambda x: sum(x[-1],[]))
-                result = result[result['flatten'].apply(lambda x: x[-1]==phoneme if len(x)>0 else False)]
+            phonemes_flatten = '-'.join(phonemes)
+            if stress=='ignore':
+                arpabet_column = 'arpabet_uncased'
             else:
-                result['flatten1'] = result['arpabet'].apply(lambda x: sum(x[0],[]))
-                result['flatten2'] = result['arpabet'].apply(lambda x: sum(x[-1],[]))
-                result1 = result[result['flatten1'].apply(lambda x: x[0]==phoneme if len(x)>0 else True)]
-                result2 = result[result['flatten2'].apply(lambda x: x[-1]==phoneme if len(x)>0 else True)]
+                arpabet_column = 'arpabet'
+            if position=='initial':
+                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(sum(x[0],[])))
+                result = result[result['flatten'].apply(lambda x: x.startswith(phonemes_flatten))]
+            elif position=='final':
+                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(sum(x[-1],[])))
+                result = result[result['flatten'].apply(lambda x: x.endswith(phonemes_flatten))]
+            else:
+                result['flatten1'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in sum(x[0],[]) if y!='']))
+                result['flatten2'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in sum(x[-1],[]) if y!='']))
+                result1 = result[result['flatten1'].apply(lambda x: x.startswith(phonemes_flatten))]
+                result2 = result[result['flatten2'].apply(lambda x: x.endswith(phonemes_flatten))]
                 result = result.loc[list(set(result.index)-set(result1.index).union(set(result2.index)))]
         
         result = result.sample(min(n,len(result)))
@@ -689,7 +696,27 @@ In the meantime, the text should meet the following requirements:
             words.append({'word':row['headword'],'pronunciation':'-'.join(respelling)})
         return words
 
-    def get_minimal_pairs(self, phoneme1, phoneme2, cefr=None, n_syllables=[1,2],n=10):
+    def get_blends(self, phonemes, type='vowel',stress='ignore',n_syllables=None,cefr=None,n=10):
+        if stress=='stressed':
+            phonemes = [x.upper() for x in phonemes]
+        elif stress=='unstressed':
+            phonemes = [x.lower() for x in phonemes]
+
+        if type=='initial_consonant':
+            result = self.search_words([{'sound':phonemes,'position':[None,0]}],n_syllables=n_syllables,cefr=cefr,ignore_stress=stress=='ignore',n=100000)
+        elif type=='final_consonant':
+            result = self.search_words([{'sound':phonemes,'position':[None,2]}],n_syllables=n_syllables,cefr=cefr,ignore_stress=stress=='ignore',n=100000)
+        else:
+            result = self.search_words([{'sound':phonemes,'position':[None,1]}],n_syllables=n_syllables,cefr=cefr,ignore_stress=stress=='ignore',n=100000)
+        result = result.sample(min(n,len(result)))
+        words = []
+        for row in result.to_dict('records'):
+            respelling = row['syllables']
+            respelling[row['i_stressed']] = respelling[row['i_stressed']].upper()
+            words.append({'word':row['headword'],'pronunciation':'-'.join(respelling)})
+        return words
+
+    def get_minimal_pairs(self, phonemes, stress="stressed", cefr=None, n_syllables=1,n=10):
 
         def flatten_list(nested_list):
             result = []
@@ -702,13 +729,22 @@ In the meantime, the text should meet the following requirements:
                     result.append(element)
             return result
         
+        if stress=='stressed':
+            phoneme1 = phoneme1.upper()
+            phoneme2 = phoneme2.upper()
+        elif stress=='unstressed':
+            phoneme1 = phoneme1.lower()
+            phoneme2 = phoneme2.lower()
+
         if phoneme1==phoneme2:
             return []
         pairs = []
-        for i in n_syllables:
-            i -= 1
-            df1 = self.search_words([{'sound':[phoneme1],'position':[i,None]}], cefr=cefr, ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
-            df2 = self.search_words([{'sound':[phoneme2],'position':[i,None]}], cefr=cefr, ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
+
+        
+        for i in range(n_syllables):
+
+            df1 = self.search_words([{'sound':[phonemes[0]],'position':[i,None]}], cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
+            df2 = self.search_words([{'sound':[phonemes[1]],'position':[i,None]}], cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
         
             arpabet_str = []
             for x in df1['arpabet'].values:
