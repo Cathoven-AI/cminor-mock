@@ -735,13 +735,11 @@ In the meantime, the text should meet the following requirements:
             return result
         
         if stress=='stressed':
-            phoneme1 = phoneme1.upper()
-            phoneme2 = phoneme2.upper()
+            phonemes = [x.upper() for x in phonemes]
         elif stress=='unstressed':
-            phoneme1 = phoneme1.lower()
-            phoneme2 = phoneme2.lower()
+            phonemes = [x.lower() for x in phonemes]
 
-        if phoneme1==phoneme2:
+        if phonemes[0]==phonemes[1]:
             return []
         pairs = []
 
