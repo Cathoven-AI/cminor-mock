@@ -676,14 +676,14 @@ In the meantime, the text should meet the following requirements:
             else:
                 arpabet_column = 'arpabet'
             if position=='initial':
-                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(sum(x[0],[])))
+                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(list(itertools.chain.from_iterable(x[0]))))
                 result = result[result['flatten'].apply(lambda x: x.startswith(phonemes_flatten))]
             elif position=='final':
-                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(sum(x[-1],[])))
+                result['flatten'] = result[arpabet_column].apply(lambda x: '-'.join(list(itertools.chain.from_iterable(x[-1]))))
                 result = result[result['flatten'].apply(lambda x: x.endswith(phonemes_flatten))]
             else:
-                result['flatten1'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in sum(x[0],[]) if y!='']))
-                result['flatten2'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in sum(x[-1],[]) if y!='']))
+                result['flatten1'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in itertools.chain.from_iterable(x[0]) if y!='']))
+                result['flatten2'] = result[arpabet_column].apply(lambda x: '-'.join([y for y in itertools.chain.from_iterable(x[-1]) if y!='']))
                 result1 = result[result['flatten1'].apply(lambda x: x.startswith(phonemes_flatten))]
                 result2 = result[result['flatten2'].apply(lambda x: x.endswith(phonemes_flatten))]
                 result = result.loc[list(set(result.index)-set(result1.index).union(set(result2.index)))]
