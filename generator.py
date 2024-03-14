@@ -568,7 +568,7 @@ In the meantime, the text should meet the following requirements:
 
     
 
-    def search_words(self,phonemes,n_syllables=None,cefr=None,n=10,ignore_stress=True):
+    def search_words(self,phonemes,pos=None,n_syllables=None,cefr=None,n=10,ignore_stress=True):
 
         df_temp = df_us.copy()
         
@@ -584,6 +584,11 @@ In the meantime, the text should meet the following requirements:
         elif cefr:
             cefr = [level_str2int.get(x,x) for x in cefr]
             df_temp = df_temp[df_temp['cefr'].apply(lambda x: x in cefr)]
+        if isinstance(pos,str):
+            df_temp = df_temp[df_temp['pos']==pos]
+        elif isinstance(pos,list):
+            df_temp = df_temp[df_temp['pos'].apply(lambda x: x in pos)]
+
         df_temp = df_temp.sample(frac=1)
         sounds = []
         positions = []
@@ -648,13 +653,13 @@ In the meantime, the text should meet the following requirements:
         filter_ += [False]*(len(df_temp)-len(filter_))
         return df_temp[filter_]
 
-    def quick_wordlist(self,phonemes,stress='ignore',position=None,n_syllables=None,cefr=None,exclude_spelling=None,n=10):
+    def quick_wordlist(self,phonemes,stress='ignore',position=None, pos=None, n_syllables=None,cefr=None,exclude_spelling=None,n=10):
         if stress=='stressed':
             phonemes = [x.upper() for x in phonemes]
         else:
             phonemes = [x.lower() for x in phonemes]
         
-        result = self.search_words([{'sound':phonemes}], ignore_stress=stress=='ignore', cefr=cefr, n_syllables=n_syllables, n=1000000)
+        result = self.search_words([{'sound':phonemes}], ignore_stress=stress=='ignore', pos=pos, cefr=cefr, n_syllables=n_syllables, n=1000000)
         
         if exclude_spelling is not None and len(result)>0:
             if exclude_spelling.startswith('-') and exclude_spelling.endswith('-'):
@@ -716,7 +721,7 @@ In the meantime, the text should meet the following requirements:
             words.append({'word':row['headword'],'pronunciation':'-'.join(respelling)})
         return words
 
-    def get_minimal_pairs(self, phonemes, stress="stressed", cefr=None, n_syllables=1,n=10):
+    def get_minimal_pairs(self, phonemes, stress="stressed", pos=None, cefr=None, n_syllables=1,n=10):
 
         def flatten_list(nested_list):
             result = []
@@ -743,8 +748,8 @@ In the meantime, the text should meet the following requirements:
         
         for i in range(n_syllables):
 
-            df1 = self.search_words([{'sound':[phonemes[0]],'position':[i,None]}], cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
-            df2 = self.search_words([{'sound':[phonemes[1]],'position':[i,None]}], cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
+            df1 = self.search_words([{'sound':[phonemes[0]],'position':[i,None]}], pos=pos, cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
+            df2 = self.search_words([{'sound':[phonemes[1]],'position':[i,None]}], pos=pos, cefr=cefr, ignore_stress=stress=='ignore', n_syllables=n_syllables, n=100000).copy().sample(frac=1)
         
             arpabet_str = []
             for x in df1['arpabet'].values:
