@@ -566,7 +566,7 @@ In the meantime, the text should meet the following requirements:
 
     
 
-    def search_words(self,phonemes,n_syllables=None,cefr=None,n=100000,ignore_stress=True):
+    def search_words(self,phonemes,n_syllables=None,cefr=None,n=10,ignore_stress=True):
 
         df_temp = df_us.copy()
         
@@ -669,11 +669,17 @@ In the meantime, the text should meet the following requirements:
 
         if position is not None and len(result)>0:
             if position=='initial':
-                result = result[result['arpabet'].apply(lambda x: sum(x[0],[])[0]==phoneme)]
+                result['flatten'] = result['arpabet'].apply(lambda x: sum(x[0],[]))
+                result = result[result['flatten'].apply(lambda x: x[0]==phoneme if len(x)>0 else False)]
             elif position=='final':
-                result = result[result['arpabet'].apply(lambda x: sum(x[-1],[])[-1]==phoneme)]
+                result['flatten'] = result['arpabet'].apply(lambda x: sum(x[-1],[]))
+                result = result[result['flatten'].apply(lambda x: x[-1]==phoneme if len(x)>0 else False)]
             else:
-                result = result[result['arpabet'].apply(lambda x: phoneme in sum(x[-1],[])[1:-1] and sum(x[0],[])[0]!=phoneme and sum(x[-1],[])[-1]!=phoneme)]
+                result['flatten1'] = result['arpabet'].apply(lambda x: sum(x[0],[]))
+                result['flatten2'] = result['arpabet'].apply(lambda x: sum(x[-1],[]))
+                result1 = result[result['flatten1'].apply(lambda x: x[0]==phoneme if len(x)>0 else True)]
+                result2 = result[result['flatten2'].apply(lambda x: x[-1]==phoneme if len(x)>0 else True)]
+                result = result.loc[list(set(result.index)-set(result1.index).union(set(result2.index)))]
         
         result = result.sample(min(n,len(result)))
         words = []
@@ -683,7 +689,7 @@ In the meantime, the text should meet the following requirements:
             words.append({'word':row['headword'],'pronunciation':'-'.join(respelling)})
         return words
 
-    def get_minimal_pairs(self, phoneme1, phoneme2, n_syllables=[1,2],n=10):
+    def get_minimal_pairs(self, phoneme1, phoneme2, cefr=None, n_syllables=[1,2],n=10):
 
         def flatten_list(nested_list):
             result = []
@@ -701,8 +707,8 @@ In the meantime, the text should meet the following requirements:
         pairs = []
         for i in n_syllables:
             i -= 1
-            df1 = self.search_words([{'sound':[phoneme1],'position':[i,None]}], ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
-            df2 = self.search_words([{'sound':[phoneme2],'position':[i,None]}], ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
+            df1 = self.search_words([{'sound':[phoneme1],'position':[i,None]}], cefr=cefr, ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
+            df2 = self.search_words([{'sound':[phoneme2],'position':[i,None]}], cefr=cefr, ignore_stress=False, n_syllables=1, n=100000).copy().sample(frac=1)
         
             arpabet_str = []
             for x in df1['arpabet'].values:
