@@ -2655,7 +2655,7 @@ class AdoTextAnalyzer(object):
             else:
                 features.append(0)
                 
-            clause_count,_ = self.count_clause(df)
+            clause_count,_ = self.count_clause_span(df)
             features.append(clause_count[0])
             features.append(clause_count[1])
             features.append(clause_count[2]+clause_count[3])
@@ -3026,7 +3026,7 @@ class AdoTextAnalyzer(object):
                     else:
                         phrase_dict = {'phrase':[],'phrase_span':[],'phrase_confidence':[],'phrase_ambiguous':[],'phrase_is_idiom':[]}
 
-                if 'sentences' in self.outputs:
+                if 'sentences' in self.outputs or 'clause_stats' in self.outputs:
                     lemma_dict = df[['id','word','lemma','pos','whitespace','CEFR','weight']].to_dict(orient='list')
                     lemma_dict['CEFR_vocabulary'] = lemma_dict['CEFR']+[]
                     del lemma_dict['CEFR']
@@ -3141,15 +3141,7 @@ class AdoTextAnalyzer(object):
                     clause_count[clause] = temp_dict
             self.print_time('clause_count')
             
-            sum_clause, cumsum_clause = self.count_clause2(clause_levels)
-            clause_stats = {'sum_token':{'values':list(sum_clause.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_clause.values,4))}}
-            a,b,c,d = self.fit_sigmoid(cumsum_clause.values,np.arange(0,6,1))
-            clause_stats['cumsum_token']['constants']=[a,b,c,d]
-            values = []
-            for k,v in sum_clause.to_dict().items():
-                values += [k]*int(v)
 
-            mean_clause = n_clausal and n_clauses/n_clausal or 0
             if len(clause_levels)>0:
                 mean_length = round(np.mean(sentence_lengths),1)
                 length_level = self.sentence_length_level(mean_length)
@@ -3162,12 +3154,22 @@ class AdoTextAnalyzer(object):
                 clause_level = 0
                 mean_length = 0
 
-            clause_stats['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
-                                    'ninety_five':[clause_level],
-                                    'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]}
-           
-            # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
-            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'length_level':length_level,'n_words':n_words})
+            if 'clause_stats' in self.outputs:
+                sum_clause, cumsum_clause = self.count_clause(df_lemma)
+                clause_stats = {'sum_token':{'values':list(sum_clause.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_clause.values,4))}}
+                # a,b,c,d = self.fit_sigmoid(cumsum_clause.values,np.arange(0,6,1))
+                # clause_stats['cumsum_token']['constants']=[a,b,c,d]
+                values = []
+                for k,v in sum_clause.to_dict().items():
+                    values += [k]*int(v)
+
+                mean_clause = n_clausal and n_clauses/n_clausal or 0
+                clause_stats['level'] = {#'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
+                                        'ninety_five':[np.percentile(clause_levels,95)],
+                                        #'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]
+                                        }
+            
+                clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'length_level':length_level,'n_words':n_words})
 
             self.print_time('clause_stats')
 
@@ -3339,7 +3341,7 @@ class AdoTextAnalyzer(object):
                 p = counts/counts.sum()
             return counts, p.cumsum()
         
-        def count_clause(self,df_lemma):
+        def count_clause_span(self,df_lemma):
             base = pd.Series(dict(zip(np.arange(0,6,1),[0.]*6)))
             max_clause = {}
             for row in df_lemma.to_dict('records'):
@@ -3356,10 +3358,9 @@ class AdoTextAnalyzer(object):
                 p = counts/counts.sum()
             return counts, p.cumsum()
 
-        def count_clause2(self,clause_levels):
-            base = dict(zip(np.arange(0,6,1),[0.]*6))
-            base.update(Counter(clause_levels))
-            counts = pd.Series(base).sort_index()
+        def count_clause(self,df_lemma):
+            base = pd.Series(dict(zip(np.arange(0,6,1),[0.]*6)))
+            counts = base.add(df_lemma[~pd.isnull(df_lemma['CEFR_clause'])].groupby('CEFR_clause')['word'].agg(len),fill_value=0.)
             if counts.sum()==0:
                 p = base
             else:
