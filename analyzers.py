@@ -3148,10 +3148,27 @@ class AdoTextAnalyzer(object):
             values = []
             for k,v in sum_clause.to_dict().items():
                 values += [k]*int(v)
+
+            mean_clause = n_clausal and n_clauses/n_clausal or 0
+            if len(clause_levels)>0:
+                mean_length = round(np.mean(sentence_lengths),1)
+                length_level = self.sentence_length_level(mean_length)
+                clause_level = np.percentile(clause_levels,95)
+                if clause_level<length_level:
+                    clause_level = np.mean([clause_level,length_level])
+                clause_level = round(min(clause_level,6),1)
+            else:
+                clause_level = 0
+                mean_length = 0
+
             clause_stats['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
                                     #'ninety_five':[self.ninety_five(cumsum_clause,5)],
-                                    'ninety_five':[self.estimate_95(values,minimum=0,maximum=5,step=1)],
+                                    'ninety_five':[clause_level],
                                     'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]}
+           
+            # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
+            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'n_words':n_words})
+
             self.print_time('clause_stats')
 
             if 'phrase_count' in self.outputs:
@@ -3166,20 +3183,6 @@ class AdoTextAnalyzer(object):
                         phrase_count[phrase] = temp_dict
             self.print_time('phrase_count')
 
-            mean_clause = n_clausal and n_clauses/n_clausal or 0
-            if len(clause_levels)>0:
-                mean_length = round(np.mean(sentence_lengths),1)
-                length_level = self.sentence_length_level(mean_length)
-                clause_level = np.percentile(clause_levels,95)
-                if clause_level<length_level:
-                    clause_level = np.mean([clause_level,length_level])
-                clause_level = round(min(clause_level,6),1)
-            else:
-                clause_level = 0
-                mean_length = 0
-            # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
-            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'n_words':n_words})
-            
             sum_series_token, cumsum_series_token, sum_series_type, cumsum_series_type = self.count_cefr(df_lemma)
             
             stats_dict = {'sum_token':{'values':list(sum_series_token.astype(int))},
