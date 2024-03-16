@@ -3141,7 +3141,7 @@ class AdoTextAnalyzer(object):
                     clause_count[clause] = temp_dict
             self.print_time('clause_count')
             
-            sum_clause, cumsum_clause = self.count_clause(df_lemma)
+            sum_clause, cumsum_clause = self.count_clause2(clause_levels)
             clause_stats = {'sum_token':{'values':list(sum_clause.astype(int))},'cumsum_token':{'values':list(np.round(cumsum_clause.values,4))}}
             a,b,c,d = self.fit_sigmoid(cumsum_clause.values,np.arange(0,6,1))
             clause_stats['cumsum_token']['constants']=[a,b,c,d]
@@ -3154,6 +3154,7 @@ class AdoTextAnalyzer(object):
                 mean_length = round(np.mean(sentence_lengths),1)
                 length_level = self.sentence_length_level(mean_length)
                 clause_level = np.percentile(clause_levels,95)
+
                 if clause_level<length_level:
                     clause_level = np.mean([clause_level,length_level])
                 clause_level = round(min(clause_level,6),1)
@@ -3162,12 +3163,11 @@ class AdoTextAnalyzer(object):
                 mean_length = 0
 
             clause_stats['level'] = {'fit_curve':[self.percentile2level(0.95,a,b,c,d)],
-                                    #'ninety_five':[self.ninety_five(cumsum_clause,5)],
                                     'ninety_five':[clause_level],
                                     'fit_error':[self.fit_error(cumsum_clause.values[1:],np.arange(1,6,1),a,b,c,d)]}
            
             # clause_stats = {'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'level':clause_level,'n_words':n_words}
-            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'n_words':n_words})
+            clause_stats.update({'p_clausal':len(dfs) and n_clausal/len(dfs) or 0,'mean_clause':mean_clause,'mean_length':mean_length,'length_level':length_level,'n_words':n_words})
 
             self.print_time('clause_stats')
 
@@ -3355,6 +3355,17 @@ class AdoTextAnalyzer(object):
             else:
                 p = counts/counts.sum()
             return counts, p.cumsum()
+
+        def count_clause2(self,clause_levels):
+            base = dict(zip(np.arange(0,6,1),[0.]*6))
+            base.update(Counter(clause_levels))
+            counts = pd.Series(base).sort_index()
+            if counts.sum()==0:
+                p = base
+            else:
+                p = counts/counts.sum()
+            return counts, p.cumsum()
+
 
         def fit_sigmoid(self,cumsum_series_values,levels):
             # [1:-1]
