@@ -8,8 +8,8 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, openai, ast, sys, time, youtube_dl, requests, torch
-from textacy import text_stats, extract
+import pickle, re, tensorflow, textstat, warnings, time, youtube_dl, requests, torch, httpx
+from textacy import text_stats
 from collections import Counter
 import Levenshtein as lev
 from lexical_diversity import lex_div as ld
@@ -21,9 +21,7 @@ from .lemmatizers import fine_lemmatize
 from .utils import InformError
 from nltk.stem import WordNetLemmatizer, LancasterStemmer, PorterStemmer
 from nltk.corpus import stopwords
-from nltk.tokenize import sent_tokenize
-from nltk import word_tokenize
-from transformers import GPT2Tokenizer
+from openai import OpenAI
 from ftlangdetect import detect
 from sentence_transformers import SentenceTransformer
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -5143,10 +5141,12 @@ class AdoTextAnalyzer(object):
 
 
 class AdoVideoAnalyzer(object):
-    def __init__(self, text_analyser, temp_dir='temp'):
+    def __init__(self, text_analyser, temp_dir='temp', openai_api_key=None):
         self.analyser = text_analyser
         self.model = None
         self.temp_dir = temp_dir
+        self.openai_api_key = openai_api_key
+        self.client = None
 
     def load_model(self):
         from faster_whisper import WhisperModel
@@ -5167,9 +5167,12 @@ class AdoVideoAnalyzer(object):
                     if k.startswith('en'):
                         en_subtitles = v
                 if en_subtitles is not None:
-                    lines, duration = self.download_subtitles(en_subtitles)
-                    if len(lines)>0:
-                        text = ' '.join([x['text'] for x in lines])
+                    try:
+                        lines, duration = self.download_subtitles(en_subtitles)
+                        if len(lines)>0:
+                            text = ' '.join([x['text'] for x in lines])
+                    except:
+                        pass
             video_id = info_dict.get('id')
             return {
                 'video_id':video_id,
@@ -5230,8 +5233,6 @@ class AdoVideoAnalyzer(object):
             return results
         else:
             result = parse(info_dict)
-            if allow_playlist==False and result.get('duration',0)>900:
-                raise InformError("This video is too long. Please choose a video that is less than 15 minutes long.")
             if save_as:
                 with open(self.temp_dir.strip('\\')+f'/{save_as}_info.pkl', 'w') as f:
                     pickle.dump(result, f)
@@ -5279,8 +5280,11 @@ class AdoVideoAnalyzer(object):
 
 
     def transcribe_video(self, url, video_id=None):
-        if self.model is None:
-            self.load_model()
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        elif self.client is None:
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
 
         if video_id is None:
             filename = '%(id)s.mp3'
@@ -5289,8 +5293,9 @@ class AdoVideoAnalyzer(object):
 
         info_dict = {}
         try:
-            segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
+            audio_file = open(self.temp_dir.strip('\\')+'/'+filename, "rb")
         except:
+            print("Downloading video ...")
             ydl_opts = {
                 'format': 'bestaudio',
                 'postprocessors': [{
@@ -5315,56 +5320,71 @@ class AdoVideoAnalyzer(object):
 
             if video_id is None:
                 filename = info_dict['id']+'.mp3'
-            print("Transcribing ...")
-            segments, _ = self.model.transcribe(self.temp_dir.strip('\\')+'/'+filename, beam_size=5, language='en', word_timestamps=True)
 
-        segments = list(segments)
+            audio_file = open(self.temp_dir.strip('\\')+'/'+filename, "rb")
+            
+        print("Transcribing ...")
+        transcript = self.client.audio.transcriptions.create(
+            file=audio_file,
+            model="whisper-1",
+            response_format="verbose_json",
+            timestamp_granularities=["segment"]
+        )
         transcription = ''
         lines = []
         speak_duration = 0
-        for x in segments:
-            line = x.text.strip(' ')
+        for x in transcript.segments:
+            line = x['text'].strip(' ')
             if line=='' or line.lower()=='music':
                 continue
             if line[-1].isalpha():
                 line += '.'
-            transcription += x.text + ' '
-            lines.append({'start':x.start,'end':x.end,'text':line})
-            speak_duration += x.end-x.start
+            transcription += x['text'] + ' '
+            lines.append({'start':x['start'],'end':x['end'],'text':line})
+            speak_duration += x['end']-x['start']
         return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def transcribe_audio(self, file_path):
-        if self.model is None:
-            self.load_model()
-        segments, _ = self.model.transcribe(file_path, beam_size=5, language='en', word_timestamps=True)
-        segments = list(segments)
+        if self.openai_api_key is None:
+            warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
+            return None
+        elif self.client is None:
+            self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
+
+        audio_file = open(file_path, "rb")
+        transcript = self.client.audio.transcriptions.create(
+            file=audio_file,
+            model="whisper-1",
+            response_format="verbose_json",
+            timestamp_granularities=["segment"]
+        )
         transcription = ''
         lines = []
         speak_duration = 0
-        for x in segments:
-            line = x.text.strip(' ')
+        for x in transcript.segments:
+            line = x['text'].strip(' ')
             if line=='' or line.lower()=='music':
                 continue
             if line[-1].isalpha():
                 line += '.'
-            transcription += x.text + ' '
-            lines.append({'start':x.start,'end':x.end,'text':line})
-            speak_duration += x.end-x.start
+            transcription += x['text'] + ' '
+            lines.append({'start':x['start'],'end':x['end'],'text':line})
+            speak_duration += x['end']-x['start']
         return {'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def spm_level(self, spm):
-        a,b = [  0.07729107, -14.62657981]
-        return spm*a+b
+        # a,b = [  0.07729107, -14.62657981]
+        # return spm*a+b
+        a, b = [31.05142857, 89.51238095]
+        return min(max(0,(spm-b)/a),6)
 
     def calculate(self, vocabulary_level,tense_level,clause_level,spm):
         coef = np.array([0.41907501, 0.46284061, 0.28858665, 0.43187369])
         return round(sum(np.array([vocabulary_level,tense_level,clause_level,spm])*coef),1)
 
     def analyze_audio(self, subtitles,
-                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
-                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+                      settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}},
+                      outputs=['final_levels']):
         
         spms = []
         texts = []
@@ -5372,24 +5392,24 @@ class AdoVideoAnalyzer(object):
             spms.append(solar_word.count_syllables(subtitles[i]['text'])/max(0.01,subtitles[i]['end']-subtitles[i]['start'])*60)
             texts.append(subtitles[i]['text'].strip(' '))
 
-        result = self.analyser.analyze_cefr(' '.join(texts),propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
-                        return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                        return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                        return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,return_result=True)
+        result = self.analyser.analyze_cefr(' '.join(texts), settings=settings, outputs=outputs, v=2)
         final_levels = result['final_levels']
 
         spm = np.median(spms)
         speech_rate_level = self.spm_level(spm)
-        final_levels['speech_rate_level'] = round(max(0,min(speech_rate_level,6)),1)
-        #final_levels['general_level'] = self.calculate(final_levels['vocabulary_level'],final_levels['tense_level'],final_levels['clause_level'],speech_rate_level)
-        final_levels['general_level'] = np.mean([final_levels['vocabulary_level'],final_levels['clause_level'],max(0,speech_rate_level)])
-        final_levels['general_level'] = round(max(final_levels['vocabulary_level']-0.5,final_levels['tense_level']-0.5,final_levels['clause_level']-0.5,final_levels['general_level']),1)
+        final_levels['speech_rate_level'] = round(speech_rate_level,1)
+        if speech_rate_level>final_levels['general_level']:
+            final_levels['general_level'] = round((final_levels['general_level']+final_levels['speech_rate_level'])/2,1)
         result['speech_stats'] = {'syllable_per_minute':spm}
         result['final_levels'] = final_levels
         result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
+        result['exam_stats'] = self.analyser.cefr.float2exams(final_levels['general_level'])
+
         return result
     
-    def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None):
+    def analyze_youtube_video(self, url, transcribe=False, auto_transcribe=True, verbose=False, save_as=None, duration_limit=900,
+                              settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}},
+                              outputs=['final_levels']):
         print('Getting video info')
         infos = self.get_video_info(url, verbose=verbose)
 
@@ -5403,17 +5423,21 @@ class AdoVideoAnalyzer(object):
         for i, x in enumerate(infos):
             if verbose==True:
                 print(f'Analysing video {i+1}/{n}')
+
+            if x.get('duration',0)>duration_limit:
+                raise InformError(f"This video is too long. Please choose a video that is less than {round(duration_limit/60,1)} minutes long.")
+
             if not transcribe:
                 if x['text'] is None:
                     if not auto_transcribe:
                         results.append({'video_info':x,'result':{'error':'No subtitles found. Analysing videos without English subtitles is not supported yet.'}})
                         continue
                 else:
-                    result = self.analyze_audio(x['subtitles'])
+                    result = self.analyze_audio(x['subtitles'], settings=settings, outputs=outputs)
                     results.append({'video_info':x,'result':result})
                     continue
             transcription = self.transcribe_video(x['url'], x['video_id'])
-            result = self.analyze_audio(transcription['subtitles'])
+            result = self.analyze_audio(transcription['subtitles'], settings=settings, outputs=outputs)
             x.update(transcription)
             results.append({'video_info':x,'result':result})
         if n==1:
@@ -5430,18 +5454,12 @@ class AdoVideoAnalyzer(object):
             return results
     
     def analyze_audio_file(self, file_path,
-                      propn_as_lowest=True,intj_as_lowest=True,keep_min=True,
-                      return_sentences=True, return_wordlists=True,return_vocabulary_stats=True,
-                      return_tense_count=True,return_tense_term_count=True,return_tense_stats=True,return_clause_count=True,
-                      return_clause_stats=True,return_phrase_count=True,return_final_levels=True):
+                           settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}},
+                           outputs=['final_levels']):
         print('Preparing to transcribing')
         transcription = self.transcribe_audio(file_path)
         print('Analysing audio')
-        result = self.analyze_audio(transcription['subtitles'],
-                                    propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,
-                                    return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
-                                    return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
-                                    return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels)
+        result = self.analyze_audio(transcription['subtitles'], settings=settings, outputs=outputs)
         return result
 
     def seconds2time(self, seconds):
@@ -5458,6 +5476,9 @@ class AdoVideoAnalyzer(object):
         for i, x in enumerate(subtitles):
             srt += f"{i+1}\n{self.seconds2time(x['start'])} --> {self.seconds2time(x['end'])}\n{x['text']}\n\n"
         return srt
+
+
+
 
 class YoutubeLogger(object):
     def debug(self, msg):
