@@ -6,6 +6,7 @@
 
 #!/usr/bin/env python
 from setuptools import setup, find_packages
+from cminor.__version__ import __version__
 
 
 with open('README.md', 'r', encoding='utf-8') as f:
@@ -16,7 +17,7 @@ with open('requirements.txt', 'r') as f:
 
 setup(
     name='solar',
-    version='2.0.1',
+    version=__version__,
     description='SOLAR: System of LAnguage Retention',
     long_description=long_description,
     long_description_content_type='text/markdown',
