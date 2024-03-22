@@ -5397,10 +5397,10 @@ class AdoVideoAnalyzer(object):
 
         spm = np.median(spms)
         speech_rate_level = self.spm_level(spm)
-        final_levels['speech_rate_level'] = round(speech_rate_level,1)
+        final_levels['speech_level'] = round(speech_rate_level,1)
         if speech_rate_level>final_levels['general_level']:
             final_levels['general_level'] = round((final_levels['general_level']+final_levels['speech_rate_level'])/2,1)
-        result['speech_stats'] = {'syllable_per_minute':spm}
+        result['speech_stats'] = {'syllable_per_minute':spm, 'speech_rate_level':speech_rate_level}
         result['final_levels'] = final_levels
         result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
         result['exam_stats'] = self.analyser.cefr.float2exams(final_levels['general_level'])
