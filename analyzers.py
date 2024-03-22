@@ -5399,7 +5399,7 @@ class AdoVideoAnalyzer(object):
         speech_rate_level = self.spm_level(spm)
         final_levels['speech_level'] = round(speech_rate_level,1)
         if speech_rate_level>final_levels['general_level']:
-            final_levels['general_level'] = round((final_levels['general_level']+final_levels['speech_rate_level'])/2,1)
+            final_levels['general_level'] = round((final_levels['general_level']+final_levels['speech_level'])/2,1)
         result['speech_stats'] = {'syllable_per_minute':spm, 'speech_rate_level':speech_rate_level}
         result['final_levels'] = final_levels
         result['final_levels_str'] = {k:self.analyser.cefr.float2cefr(v) for k,v in final_levels.items()}
@@ -5421,6 +5421,7 @@ class AdoVideoAnalyzer(object):
             print(f'Analysing {n} videos')
         results = []
         for i, x in enumerate(infos):
+            x['transcribed'] = False
             if verbose==True:
                 print(f'Analysing video {i+1}/{n}')
 
@@ -5437,6 +5438,7 @@ class AdoVideoAnalyzer(object):
                     results.append({'video_info':x,'result':result})
                     continue
             transcription = self.transcribe_video(x['url'], x['video_id'])
+            x['transcribed'] = True
             result = self.analyze_audio(transcription['subtitles'], settings=settings, outputs=outputs)
             x.update(transcription)
             results.append({'video_info':x,'result':result})
