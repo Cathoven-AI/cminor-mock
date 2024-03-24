@@ -5328,7 +5328,8 @@ class AdoVideoAnalyzer(object):
             file=audio_file,
             model="whisper-1",
             response_format="verbose_json",
-            timestamp_granularities=["segment"]
+            timestamp_granularities=["segment"],
+            prompt="Every end of sentence should have a full stop. Only transcribe speech, and don't include music or descriptive captions."
         )
         transcription = ''
         lines = []
@@ -5342,7 +5343,7 @@ class AdoVideoAnalyzer(object):
             transcription += x['text'] + ' '
             lines.append({'start':x['start'],'end':x['end'],'text':line})
             speak_duration += x['end']-x['start']
-        return {'video_id':info_dict.get('id'),'title':info_dict.get('title'), 'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
+        return {'url':url, 'text':transcription, 'subtitles':lines, 'speak_duration':speak_duration}
 
     def transcribe_audio(self, file_path):
         if self.openai_api_key is None:
