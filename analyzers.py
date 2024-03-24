@@ -5337,8 +5337,8 @@ class AdoVideoAnalyzer(object):
             line = x['text'].strip(' ')
             if line=='' or line.lower()=='music':
                 continue
-            if line[-1].isalpha():
-                line += '.'
+            # if line[-1].isalpha():
+            #     line += '.'
             transcription += x['text'] + ' '
             lines.append({'start':x['start'],'end':x['end'],'text':line})
             speak_duration += x['end']-x['start']
