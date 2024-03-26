@@ -204,7 +204,19 @@ class AdoTextAnalyzer(object):
             if self.doc is None:
                 self.make_doc()
             self.cefr = self.CEFRAnalyzer(self)
-            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=custom_dictionary,
+
+            clean_custom_dictionary = {}
+            for k, l in default_settings['custom_dictionary'].items():
+                if isinstance(l, str):
+                    l = cefr2float(l)
+                if l is None:
+                    continue
+                if isinstance(k, tuple) or isinstance(k, list):
+                    key = tuple([k[0].lower(),standardisePos(k[1])])
+                    clean_custom_dictionary[key] = l
+                else:
+                    clean_custom_dictionary[k] = l
+            self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=clean_custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
                         return_clause_stats=return_clause_stats,return_phrase_count=return_phrase_count,return_final_levels=return_final_levels,
@@ -234,6 +246,19 @@ class AdoTextAnalyzer(object):
                     self.cefr2.outputs = set(outputs)
                 default_settings = {'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}}
                 default_settings.update(settings)
+
+                clean_custom_dictionary = {}
+                for k, l in default_settings['custom_dictionary'].items():
+                    if isinstance(l, str):
+                        l = cefr2float(l)
+                    if l is None:
+                        continue
+                    if isinstance(k, tuple) or isinstance(k, list):
+                        key = tuple([k[0].lower(),standardisePos(k[1])])
+                        clean_custom_dictionary[key] = l
+                    else:
+                        clean_custom_dictionary[k] = l
+                default_settings['custom_dictionary'] = clean_custom_dictionary
                 self.cefr2.settings = default_settings
                 self.make_doc()
             if self.doc is None:
@@ -2826,10 +2851,6 @@ class AdoTextAnalyzer(object):
 
                             level = None
                             if len(self.settings['custom_dictionary'])>0:
-                                for k, v in self.settings['custom_dictionary'].items():
-                                    if isinstance(k, list):
-                                        self.settings['custom_dictionary'][tuple(k)] = v
-                                        del self.settings['custom_dictionary'][k]
                                 for key in [word_lemma,word_orth,x.lemma_,x.orth_.lower(),x.orth_]:
                                     level = self.settings['custom_dictionary'].get(key,None)
                                     if level is not None:
@@ -4501,10 +4522,6 @@ class AdoTextAnalyzer(object):
 
                             level = None
                             if len(custom_dictionary)>0:
-                                for k, v in custom_dictionary.items():
-                                    if isinstance(k, list):
-                                        custom_dictionary[tuple(k)] = v
-                                        del custom_dictionary[k]
                                 for key in [word_lemma,word_orth,x.lemma_,x.orth_.lower(),x.orth_]:
                                     level = custom_dictionary.get(key,None)
                                     if level is not None:
@@ -5542,3 +5559,22 @@ def float2hsk(num):
         return "HSK7-9"
     else:
         return f"HSK{int(num)+1}"
+    
+def cefr2float(cefr):
+    floats = {"-∞":-1, 0:0, '0':0, 'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5, '+∞':6, 'NATIVE':6}
+    return floats.get(cefr.upper())
+
+def standardisePos(pos):
+    poses = {'adjective':'ADJ',
+     'adverb':'ADV',
+     'v':'VERB',
+     'n':'NOUN',
+     'preposition':'ADP',
+     'prep':'ADP',
+     'pronoun':'PRON',
+     'conjunction':'CONJ',
+     'sconj':'CONJ'}
+    # get only alpha
+    pos = re.sub(r'[^a-z]','',pos.lower())
+    return poses.get(pos,pos.upper())
+    
