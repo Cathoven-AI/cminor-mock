@@ -8,7 +8,7 @@ from . import spacy
 from . import word as solar_word
 from . import modify_text
 from .edit_distance_modified import edit_distance
-import pickle, re, tensorflow, textstat, warnings, time, youtube_dl, requests, torch, httpx
+import pickle, re, tensorflow, textstat, warnings, time, youtube_dl, requests, torch, httpx, json
 from textacy import text_stats
 from collections import Counter
 import Levenshtein as lev
@@ -206,7 +206,7 @@ class AdoTextAnalyzer(object):
             self.cefr = self.CEFRAnalyzer(self)
 
             clean_custom_dictionary = {}
-            for k, l in default_settings['custom_dictionary'].items():
+            for k, l in custom_dictionary.items():
                 if isinstance(l, str):
                     l = cefr2float(l)
                 if l is None:
@@ -215,7 +215,15 @@ class AdoTextAnalyzer(object):
                     key = tuple([k[0].lower(),standardisePos(k[1])])
                     clean_custom_dictionary[key] = l
                 else:
-                    clean_custom_dictionary[k] = l
+                    try:
+                        key = json.loads(k)
+                        if isinstance(k, list):
+                            key = tuple(key)
+                        else:
+                            key = k
+                    except:
+                        key = k
+                    clean_custom_dictionary[key] = l
             self.cefr.start_analyze(propn_as_lowest=propn_as_lowest,intj_as_lowest=intj_as_lowest,keep_min=keep_min,custom_dictionary=clean_custom_dictionary,
                         return_sentences=return_sentences, return_wordlists=return_wordlists,return_vocabulary_stats=return_vocabulary_stats,
                         return_tense_count=return_tense_count,return_tense_term_count=return_tense_term_count,return_tense_stats=return_tense_stats,return_clause_count=return_clause_count,
@@ -257,7 +265,15 @@ class AdoTextAnalyzer(object):
                         key = tuple([k[0].lower(),standardisePos(k[1])])
                         clean_custom_dictionary[key] = l
                     else:
-                        clean_custom_dictionary[k] = l
+                        try:
+                            key = json.loads(k)
+                            if isinstance(k, list):
+                                key = tuple(key)
+                            else:
+                                key = k
+                        except:
+                            key = k
+                        clean_custom_dictionary[key] = l
                 default_settings['custom_dictionary'] = clean_custom_dictionary
                 self.cefr2.settings = default_settings
                 self.make_doc()
