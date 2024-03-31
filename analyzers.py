@@ -217,8 +217,8 @@ class AdoTextAnalyzer(object):
                 else:
                     try:
                         key = json.loads(k)
-                        if isinstance(k, list):
-                            key = tuple(key)
+                        if isinstance(key, list):
+                            key = tuple([key[0].lower(),standardisePos(key[1])])
                         else:
                             key = k
                     except:
@@ -267,8 +267,8 @@ class AdoTextAnalyzer(object):
                     else:
                         try:
                             key = json.loads(k)
-                            if isinstance(k, list):
-                                key = tuple(key)
+                            if isinstance(key, list):
+                                key = tuple([key[0].lower(),standardisePos(key[1])])
                             else:
                                 key = k
                         except:
