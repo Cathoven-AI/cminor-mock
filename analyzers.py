@@ -5323,7 +5323,6 @@ class AdoVideoAnalyzer(object):
             filename = '%(id)s.mp3'
         else:
             filename = video_id+'.mp3'
-
         info_dict = {}
         try:
             audio_file = open(self.temp_dir.strip('\\')+'/'+filename, "rb")
@@ -5446,7 +5445,6 @@ class AdoVideoAnalyzer(object):
                               outputs=['final_levels']):
         print('Getting video info')
         infos = self.get_video_info(url, verbose=verbose)
-
         if type(infos)!=list:
             infos = [infos]
         n = len(infos)

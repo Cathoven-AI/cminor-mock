@@ -42,21 +42,31 @@ level_str2int = {'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5}
 level_int2str = {0:'A1',1:'A2',2:'B1',3:'B2',4:'C1',5:'C2'}
 
 class AdoQuestionGenerator(object):
-    def __init__(self, text_analyser=None, openai_api_key=None):
+    def __init__(self, text_analyser=None, video_analyser=None, openai_api_key=None):
         self.openai_api_key = openai_api_key
         self.client = None
         self.analyser = text_analyser
+        self.video_analyser = video_analyser
         
-    def generate_questions(self, text=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, 
-                           answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None):
+    def generate_questions(self, text=None, url=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, 
+                           answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3, override_messages=None,
+                           transcribe=False, duration_limit=900):
+        
         n = min(int(n),20)
         auto_retry = min(int(auto_retry),3)
 
         if self.openai_api_key is None:
             warnings.warn("OpenAI API key is not set. Please assign one to .openai_api_key before calling.")
             return None
-        else:
+        elif self.client is None:
             self.client = OpenAI(api_key=self.openai_api_key, timeout=httpx.Timeout(120, connect=5))
+
+        if not text and not url:
+            raise InformError("Please provide the text or the URL.")
+        
+        if text is None and url is not None:
+            result = self.video_analyser.analyze_youtube_video(url, transcribe=transcribe, auto_transcribe=True, duration_limit=duration_limit)
+            text = result['video_info']['text']
 
         if level is None:
             if self.analyser is not None and (question_language is None or question_language=='English'):
@@ -329,15 +339,15 @@ class AdoQuestionGenerator(object):
         if questions is None:
             if auto_retry>0:
                 if auto_retry%2==1:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language, 
+                    return self.generate_questions(text=text, url=url, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language, 
                                                    override_messages=messages+[{"role": completion.choices[0].message.role, "content": completion.choices[0].message.content},
                                                                                {"role": "user", "content": f"The questions you returned are not in Python {format_type} format. Return them as a Python {format_type} like this example: {json_format}"}])
                 else:
-                    return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
+                    return self.generate_questions(text=text, url=url, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
             else:
                 return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
         elif len(questions)<n and auto_retry>0:
-            return self.generate_questions(text, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
+            return self.generate_questions(text=text, url=url, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
         
         if kind=='essay_question':
             for i in range(len(questions)):
