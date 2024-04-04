@@ -64,9 +64,12 @@ class AdoQuestionGenerator(object):
         if not text and not url:
             raise InformError("Please provide the text or the URL.")
         
+        video_result = None
         if text is None and url is not None:
-            result = self.video_analyser.analyze_youtube_video(url, transcribe=transcribe, auto_transcribe=True, duration_limit=duration_limit)
-            text = result['video_info']['text']
+            video_result = self.video_analyser.analyze_youtube_video(url, transcribe=transcribe, auto_transcribe=True, duration_limit=duration_limit)
+            text = video_result['video_info']['text']
+            if not text:
+                raise InformError("Error loading video.")
 
         if level is None:
             if self.analyser is not None and (question_language is None or question_language=='English'):
@@ -354,6 +357,10 @@ class AdoQuestionGenerator(object):
                 questions[i]['answer'] = questions[i]['answer'].capitalize()
         if isinstance(questions,list) and len(questions)>n:
             questions = questions[:n]
+
+        if video_result and video_result["video_info"].get("video_id"):
+            for x in questions:
+                x['video_id'] = video_result["video_info"]["video_id"]
         return questions
     
     def parse_questions(self, response):
