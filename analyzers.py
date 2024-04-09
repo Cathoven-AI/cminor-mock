@@ -5469,7 +5469,16 @@ class AdoVideoAnalyzer(object):
                     result = self.analyze_audio(x['subtitles'], settings=settings, outputs=outputs)
                     results.append({'video_info':x,'result':result})
                     continue
-            transcription = self.transcribe_video(x['url'], x['video_id'])
+
+            n_trials = 3
+            while n_trials>0:
+                transcription = self.transcribe_video(x['url'], x['video_id'])
+                if not ('transcribe speech' in transcription['text'].lower() and 'music or descriptive captions' in transcription['text'].lower()):
+                    break
+                n_trials -= 1
+                if n_trials == 0:
+                    raise InformError("Transcription failed. Please try again later.")
+
             x['transcribed'] = True
             result = self.analyze_audio(transcription['subtitles'], settings=settings, outputs=outputs)
             x.update(transcription)
