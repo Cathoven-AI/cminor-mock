@@ -348,7 +348,8 @@ class AdoQuestionGenerator(object):
                 else:
                     return self.generate_questions(text=text, url=url, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return the questions in Python dictionary format. Response: {response}"}
+                print("The bot didn't return the questions in Python dictionary format. Response: {response}")
+                raise InformError("Creating questions failed. Please try again or use a different text.")
         elif len(questions)<n and auto_retry>0:
             return self.generate_questions(text=text, url=url, n=n, kind=kind, auto_retry=auto_retry-1, words=words, skill=skill, level=level, answer_position=answer_position, explanation=explanation, question_language=question_language, explanation_language=explanation_language)
         
@@ -358,10 +359,13 @@ class AdoQuestionGenerator(object):
         if isinstance(questions,list) and len(questions)>n:
             questions = questions[:n]
 
-        if video_result and video_result["video_info"].get("video_id"):
-            for x in questions:
-                x['video_id'] = video_result["video_info"]["video_id"]
-        return questions
+        if isinstance(questions,list):
+            result = {"questions":questions}
+        else:
+            result = questions
+        if video_result:
+            result.update(video_result)
+        return result
     
     def parse_questions(self, response):
         try:
@@ -863,7 +867,8 @@ Writing:
                 else:
                     return self.revise(text, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1, original_analysis=original_analysis)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
+                print(f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}")
+                raise InformError("Task failed. Please try again or use a different text.")
         
         revised_text = text+''
         result2 = []
@@ -971,8 +976,8 @@ Writing:
                 else:
                     return self.enhance(text, level=level, comment=comment, writing_language=writing_language, comment_language=comment_language, auto_retry=auto_retry-1)
             else:
-                return {'error':"SyntaxError",'detail':f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}"}
-        
+                print(f"The bot didn't return a Python dictionary. Response: {completion.choices[0].message.content}")
+                raise InformError("Task failed. Please try again or use a different text.")
         revised_text = text+''
         result2 = []
         for x in result:
