@@ -262,7 +262,7 @@ class AdoLevelAdaptor(object):
                         levels += [-1]*v
                     else:
                         levels += [-1]*m+[k]*(n-m)
-                if self.analyser.cefr.estimate_95(levels)<target_level+0.8:
+                if self.analyser.cefr.estimate_95(levels)<target_level+0.5:
                     threshold = i
                     p = m/n
                     done = True
@@ -361,7 +361,7 @@ class AdoLevelAdaptor(object):
                 try:
                     if n_self_try==0:
                         completion = await self.async_client.chat.completions.create(
-                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            model='gpt-4-turbo', n=max(n_per_call,n-len(candidates)),
                             messages=[{"role": "user", "content": prompt}],
                             #response_format={"type": "json_object"}
                         )
@@ -386,7 +386,7 @@ class AdoLevelAdaptor(object):
                 try:
                     if n_self_try==0:
                         completion = await self.async_client.chat.completions.create(
-                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            model='gpt-4-turbo', n=max(n_per_call,n-len(candidates)),
                             messages=[{"role": "user", "content": prompt}],
                             #response_format={"type": "json_object"}
                         )
@@ -465,7 +465,7 @@ class AdoLevelAdaptor(object):
                     openai_t0 = time.time()
                     if n_self_try==0:
                         completion = self.client.chat.completions.create(
-                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            model='gpt-4-turbo', n=max(n_per_call,n-len(candidates)),
                             messages=[{"role": "user", "content": prompt}],
                             #response_format={"type": "json_object"}
                         )
@@ -495,7 +495,7 @@ class AdoLevelAdaptor(object):
                     openai_t0 = time.time()
                     if n_self_try==0:
                         completion = self.client.chat.completions.create(
-                            model='gpt-4', n=max(n_per_call,n-len(candidates)),
+                            model='gpt-4-turbo', n=max(n_per_call,n-len(candidates)),
                             messages=[{"role": "user", "content": prompt}],
                             #response_format={"type": "json_object"}
                         )
