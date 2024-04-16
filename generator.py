@@ -110,6 +110,9 @@ class AdoQuestionGenerator(object):
         if skill=='listening':
             material = 'as a listening exercise for an audio recording'
             material_format = 'Transcript'
+        elif skill=='watching':
+            material = 'as a comprehension exercise for a video'
+            material_format = 'Transcript'
         else:
             material = 'for a text'
             material_format = 'Text'
