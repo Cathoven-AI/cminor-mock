@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mock-cminor"
+version = "0.0.2"
+authors = [
+  { name="Cathoven A.I", email="contact@cathoven.com" },
+]
+description = "Mocking library for Cminor"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/yunusarli/cminor"
+Issues = "https://github.com/yunusarli/cminor/issues"
