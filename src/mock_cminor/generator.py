@@ -8,7 +8,7 @@ class AdoTextGenerator:
     def create_text(self,level,n_words,topic,grammar, genre, settings, outputs ,keywords):
         return get_text_generator()
 
-class AdoWritingAssesor:
+class AdoWritingAssessor:
     def __init__(self, analyser, openai_api_key):
         self.analyser = analyser
         self.openai_api_key = openai_api_key

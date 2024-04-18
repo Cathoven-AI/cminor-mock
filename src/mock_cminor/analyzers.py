@@ -18,9 +18,9 @@ class AdoTextAnalyzer:
         return get_readability()
 
 class AdoVideoAnalyzer:
-    def __init__(self, analyser, open_ai_api_key, temp_dir):
+    def __init__(self, analyser, openai_api_key, temp_dir):
         self.analyser = analyser
-        self.open_ai_api_key = open_ai_api_key
+        self.openai_api_key = openai_api_key
         self.temp_dir = temp_dir
     
     def get_video_info(self,url):
