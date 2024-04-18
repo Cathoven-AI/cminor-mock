@@ -473,12 +473,38 @@ class AdoTextGenerator(object):
             del default_settings['ignore_keywords']
         settings = default_settings
         settings['custom_dictionary'] = custom_dictionary
-        if grammar:
-            model = 'gpt-4'
-        else:
-            model = 'gpt-3.5-turbo'
 
-        return self.execute_prompt(prompt,level,temp_results=[], model=model, settings=settings, outputs=outputs)
+        model = 'gpt-4-1106-preview'
+        results = self.execute_prompt(prompt, level, temp_results=[], model=model, settings=settings, outputs=outputs)
+
+        words_to_tag = []
+        poses_to_tag = []
+        if keywords:
+            for x in keywords:
+                if isinstance(x,str):
+                    words_to_tag.append(x.lower())
+                    poses_to_tag.append(None)
+                else:
+                    words_to_tag.append(x[0])
+                    poses_to_tag.append(standardise_pos(x[1]))
+        if words_to_tag:
+            tagged_text = ''
+            for _, sent in results['result']['sentences'].items():
+                for i in range(len(sent['pos'])):
+                    if sent['lemma'][i] in words_to_tag:
+                        pos_to_tag = poses_to_tag[words_to_tag.index(sent['lemma'][i])]
+                        if not pos_to_tag or pos_to_tag==sent['pos'][i]:
+                            tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
+                            continue
+                    elif sent['word'][i].lower() in words_to_tag:
+                        pos_to_tag = poses_to_tag[words_to_tag.index(sent['word'][i].lower())]
+                        if not pos_to_tag or pos_to_tag==sent['pos'][i]:
+                            tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
+                            continue
+                    tagged_text += sent['word'][i]+' '*sent['whitespace'][i]
+        results['text_tagged'] = tagged_text
+        return results
+    
 
     def construct_prompt(self, level,n_words=300,topic=None,keywords=None,grammar=None,genre=None):
 
@@ -569,7 +595,7 @@ In the meantime, the text should meet the following requirements:
                 #    return self.execute_prompt(prompt,max(0,level-1),auto_retry=auto_retry-1,temp_results=temp_results)
                 #else:
                 #    return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
-                return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results)
+                return self.execute_prompt(prompt,level,auto_retry=auto_retry-1,temp_results=temp_results, settings=settings, outputs=outputs)
             else:
                 diffs = []
                 for i in range(len(temp_results)):
@@ -1035,4 +1061,17 @@ Writing:
 
         return ' '.join(marked_str1).replace(' \n ','\n'),' '.join(marked_str2).replace(' \n ','\n'), ' '.join(both).replace(' \n ','\n')
     
+def standardise_pos(pos):
+    poses = {'adjective':'ADJ',
+     'adverb':'ADV',
+     'v':'VERB',
+     'n':'NOUN',
+     'preposition':'ADP',
+     'prep':'ADP',
+     'pronoun':'PRON',
+     'conjunction':'CONJ',
+     'sconj':'CONJ'}
+    # get only alpha
+    pos = re.sub(r'[^a-z]','',pos.lower())
+    return poses.get(pos,pos.upper())
     

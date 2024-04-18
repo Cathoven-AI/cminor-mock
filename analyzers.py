@@ -175,7 +175,6 @@ class AdoTextAnalyzer(object):
         self.doc = nlp(self.text)
         for x in self.doc:
             x = fine_lemmatize(x,self.doc,nlp)
-
     def analyze_cefr(self,text,
                      settings={'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'as_wordlist':False,'custom_dictionary':{}},
                      outputs=['final_levels'],
@@ -212,13 +211,13 @@ class AdoTextAnalyzer(object):
                 if l is None:
                     continue
                 if isinstance(k, tuple) or isinstance(k, list):
-                    key = tuple([k[0].lower(),standardisePos(k[1])])
+                    key = tuple([k[0].lower(),standardise_pos(k[1])])
                     clean_custom_dictionary[key] = l
                 else:
                     try:
                         key = json.loads(k)
                         if isinstance(key, list):
-                            key = tuple([key[0].lower(),standardisePos(key[1])])
+                            key = tuple([key[0].lower(),standardise_pos(key[1])])
                         else:
                             key = k
                     except:
@@ -243,6 +242,8 @@ class AdoTextAnalyzer(object):
             if len(invalid_settings)>0:
                 raise InformError(f"Invalid setting: {', '.join(invalid_settings)}")
             
+            import time
+            t0 = time.time()
             if self.v!=v or text!=self.text or self.cefr2.outputs != outputs or self.cefr2.settings != settings:
                 self.init()
                 self.v = v
@@ -262,13 +263,13 @@ class AdoTextAnalyzer(object):
                     if l is None:
                         continue
                     if isinstance(k, tuple) or isinstance(k, list):
-                        key = tuple([k[0].lower(),standardisePos(k[1])])
+                        key = tuple([k[0].lower(),standardise_pos(k[1])])
                         clean_custom_dictionary[key] = l
                     else:
                         try:
                             key = json.loads(k)
                             if isinstance(key, list):
-                                key = tuple([key[0].lower(),standardisePos(key[1])])
+                                key = tuple([key[0].lower(),standardise_pos(key[1])])
                             else:
                                 key = k
                         except:
@@ -279,7 +280,10 @@ class AdoTextAnalyzer(object):
                 self.make_doc()
             if self.doc is None:
                 self.make_doc()
+            print('doc',time.time()-t0)
+            t0 = time.time()
             self.cefr2.start_analyze()
+            print('analyse',time.time()-t0)
             self.cefr.result = self.cefr2.result
             return self.cefr.result
         
@@ -5587,7 +5591,7 @@ def cefr2float(cefr):
     floats = {"-∞":-1, 0:0, '0':0, 'A1':0,'A2':1,'B1':2,'B2':3,'C1':4,'C2':5, '+∞':6, 'NATIVE':6}
     return floats.get(cefr.upper())
 
-def standardisePos(pos):
+def standardise_pos(pos):
     poses = {'adjective':'ADJ',
      'adverb':'ADV',
      'v':'VERB',
