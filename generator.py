@@ -487,21 +487,21 @@ class AdoTextGenerator(object):
                 else:
                     words_to_tag.append(x[0])
                     poses_to_tag.append(standardise_pos(x[1]))
-        if words_to_tag:
-            tagged_text = ''
-            for _, sent in results['result']['sentences'].items():
-                for i in range(len(sent['pos'])):
-                    if sent['lemma'][i] in words_to_tag:
-                        pos_to_tag = poses_to_tag[words_to_tag.index(sent['lemma'][i])]
-                        if not pos_to_tag or pos_to_tag==sent['pos'][i]:
-                            tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
-                            continue
-                    elif sent['word'][i].lower() in words_to_tag:
-                        pos_to_tag = poses_to_tag[words_to_tag.index(sent['word'][i].lower())]
-                        if not pos_to_tag or pos_to_tag==sent['pos'][i]:
-                            tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
-                            continue
-                    tagged_text += sent['word'][i]+' '*sent['whitespace'][i]
+
+        tagged_text = ''
+        for _, sent in results['result']['sentences'].items():
+            for i in range(len(sent['pos'])):
+                if sent['lemma'][i] in words_to_tag:
+                    pos_to_tag = poses_to_tag[words_to_tag.index(sent['lemma'][i])]
+                    if not pos_to_tag or pos_to_tag==sent['pos'][i]:
+                        tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
+                        continue
+                elif sent['word'][i].lower() in words_to_tag:
+                    pos_to_tag = poses_to_tag[words_to_tag.index(sent['word'][i].lower())]
+                    if not pos_to_tag or pos_to_tag==sent['pos'][i]:
+                        tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
+                        continue
+                tagged_text += sent['word'][i]+' '*sent['whitespace'][i]
         results['text_tagged'] = tagged_text
         return results
     
