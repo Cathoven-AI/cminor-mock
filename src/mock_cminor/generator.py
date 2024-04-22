@@ -5,7 +5,13 @@ class AdoTextGenerator:
         self.analyser = analyser
         self.openai_api_key = openai_api_key
 
-    def create_text(self,level,n_words,topic,grammar, genre, settings, outputs ,keywords):
+    def create_text(self,
+                      level,n_words=300,topic=None,grammar=None, genre=None, 
+                      settings={'ignore_keywords':True,'propn_as_lowest':True,'intj_as_lowest':True,'keep_min':True,'custom_dictionary':{}},
+                      outputs=['sentences','wordlists','vocabulary_stats','tense_count','tense_term_count','tense_stats','clause_count','clause_stats','final_levels','modified_final_levels'], 
+                      keywords=None
+                      ):
+        
         return get_text_generator()
 
 class AdoWritingAssessor:
@@ -13,10 +19,10 @@ class AdoWritingAssessor:
         self.analyser = analyser
         self.openai_api_key = openai_api_key
 
-    def revise(self,text, comment, writing_language, comment_language):
+    def revise(self,text, comment=False, writing_language="English", comment_language=None, auto_retry=2):
         return get_writing_assessment_revise()
 
-    def enhance(self,text, level, comment, writing_language, comment_language):
+    def enhance(self,text, level=None, comment=False, writing_language="English", comment_language=None, auto_retry=2):
         return get_writing_assessment_enhance()
 
 class AdoQuestionGenerator:
@@ -25,6 +31,11 @@ class AdoQuestionGenerator:
         self.video_analyser = video_analyser
         self.openai_api_key = openai_api_key
 
-    def generate_questions(self,text,n,kind,auto_retry, explanation, explanation_language,answer_position,question_language, words, skill, level, url, transcribe, duration_limit):
+        
+
+    def generate_questions(self, text=None, url=None, words=None, n=10, kind='multiple_choice', skill='reading', level=None, 
+                           answer_position=False, explanation=False, question_language=None, explanation_language=None, auto_retry=3,
+                           transcribe=False, duration_limit=900):
+        
         return get_question_generator()
     

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mock-cminor"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
   { name="Cathoven A.I", email="contact@cathoven.com" },
 ]
