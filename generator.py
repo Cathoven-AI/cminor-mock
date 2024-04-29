@@ -407,7 +407,10 @@ class AdoTextGenerator(object):
     def __init__(self, text_analyser, openai_api_key=None):
         self.openai_api_key = openai_api_key
         self.analyser = text_analyser
-
+        if self.analyser is not None:
+            self.tense_keys = {v.lower():k for k,v in self.analyser.cefr.tense_name_dict.items()}
+        else:
+            self.tense_keys = {}
         self.grammar_description = {'present simple passive':'is/are (not) done',
                                     'present continuous':'is/are (not) doing',
                                     'present continuous passive':'is/are (not) being done',
@@ -479,29 +482,63 @@ class AdoTextGenerator(object):
 
         words_to_tag = []
         poses_to_tag = []
+        phrases_to_tag = []
+        tenses_to_tag = []
         if keywords:
             for x in keywords:
                 if isinstance(x,str):
-                    words_to_tag.append(x.lower())
-                    poses_to_tag.append(None)
+                    if ' ' in x.strip():
+                        x = re.sub(' +', ' ', x.strip())
+                        phrases_to_tag.append(x.lower().split(' '))
+                    else:
+                        words_to_tag.append(x.lower())
+                        poses_to_tag.append(None)
                 else:
                     words_to_tag.append(x[0])
                     poses_to_tag.append(standardise_pos(x[1]))
 
+        if grammar:
+            for x in grammar:
+                x = x.strip().lower()
+                if x in self.tense_keys:
+                    tenses_to_tag.append(self.tense_keys[x])
+
         tagged_text = ''
         for _, sent in results['result']['sentences'].items():
+            i_to_tag = []
+            id_to_tag = []
+
+            for tense in tenses_to_tag:
+                for k in range(len(sent['tense1'])):
+                    if sent['tense1'][k]==tense[0] and sent['tense2'][k]==tense[1]:
+                        id_to_tag += sent['tense_span'][k]
+
             for i in range(len(sent['pos'])):
+                for phrase_to_tag in phrases_to_tag:
+                    i_to_tag_temp = []
+                    for j in range(len(phrase_to_tag)):
+                        if i+j<len(sent['lemma']) and (sent['lemma'][i+j]==phrase_to_tag[j] or sent['word'][i+j].lower()==phrase_to_tag[j]):
+                            i_to_tag_temp.append(i+j)
+                        else:
+                            i_to_tag_temp = []
+                            break
+                    i_to_tag += i_to_tag_temp
                 if sent['lemma'][i] in words_to_tag:
                     pos_to_tag = poses_to_tag[words_to_tag.index(sent['lemma'][i])]
                     if not pos_to_tag or pos_to_tag==sent['pos'][i]:
-                        tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
-                        continue
+                        i_to_tag.append(i)
                 elif sent['word'][i].lower() in words_to_tag:
                     pos_to_tag = poses_to_tag[words_to_tag.index(sent['word'][i].lower())]
                     if not pos_to_tag or pos_to_tag==sent['pos'][i]:
-                        tagged_text += f'<b>{sent["word"][i]}</b>'+' '*sent['whitespace'][i]
-                        continue
-                tagged_text += sent['word'][i]+' '*sent['whitespace'][i]
+                        i_to_tag.append(i)
+
+                word = sent['word'][i]
+                if sent['id'][i] in id_to_tag:
+                    word = '<i>'+word+'</i>'
+                if i in i_to_tag:
+                    word = '<b>'+word+'</b>'
+                tagged_text += word+' '*sent['whitespace'][i]
+
         results['text_tagged'] = tagged_text
         return results
     

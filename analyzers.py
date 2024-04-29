@@ -709,10 +709,14 @@ class AdoTextAnalyzer(object):
                         X = vectorizer.fit_transform([' '.join(x[1]['lemma'].values.astype(str)) for x in df_500.groupby('sent_index')])
                         
                         if len(df_500['lemma'].unique()) > 1:
-                            svd_model = TruncatedSVD(n_components=min(X.shape[1]-1,min(len(df_500['lemma'].unique())-1,10)), algorithm='randomized', n_iter=100, random_state=0)
-                            svd_model.fit(X)
-                            density_list.append(svd_model.explained_variance_ratio_.max())
-            density_list = [x for x in density_list if not np.isnan(x)]
+                            try:
+                                svd_model = TruncatedSVD(n_components=min(X.shape[1]-1,min(len(df_500['lemma'].unique())-1,10)), algorithm='randomized', n_iter=100, random_state=0)
+                                svd_model.fit(X)
+                                d = svd_model.explained_variance_ratio_.max()
+                                if not np.isnan(d):
+                                    density_list.append(d)
+                            except Exception as e:
+                                print(e)
 
             summary = pd.concat([pd.Series({'std_length':np.std(sent_length_list_all),
                                             'high_mean_length': self.high_avg(sent_length_list_all),
@@ -1420,9 +1424,12 @@ class AdoTextAnalyzer(object):
                     X = vectorizer.fit_transform([' '.join(x[1]['lemma'].values.astype(str)) for x in df_500.groupby('sent_index')])
                     
                     if len(df_500['lemma'].unique()) > 1:
-                        svd_model = TruncatedSVD(n_components=min(X.shape[1]-1,min(len(df_500['lemma'].unique())-1,10)), algorithm='randomized', n_iter=100, random_state=0)
-                        svd_model.fit(X)
-                        density_list.append(svd_model.explained_variance_ratio_.max())
+                        try:
+                            svd_model = TruncatedSVD(n_components=min(X.shape[1]-1,min(len(df_500['lemma'].unique())-1,10)), algorithm='randomized', n_iter=100, random_state=0)
+                            svd_model.fit(X)
+                            density_list.append(svd_model.explained_variance_ratio_.max())
+                        except:
+                            density_list.append(np.nan)
                     else:
                         density_list.append(np.nan)
                 
