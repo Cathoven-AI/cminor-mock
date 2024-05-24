@@ -1,9 +1,10 @@
 from .get_results import get_question_generator, get_text_generator, get_writing_assessment_revise, get_writing_assessment_enhance
 
 class AdoTextGenerator:
-    def __init__(self, analyser, openai_api_key):
+    def __init__(self, analyser, openai_api_key=None, antropic_api_key=None):
         self.analyser = analyser
         self.openai_api_key = openai_api_key
+        self.antropic_api_key = antropic_api_key
 
     def create_text(self,
                       level,n_words=300,topic=None,grammar=None, genre=None, 
@@ -15,9 +16,10 @@ class AdoTextGenerator:
         return get_text_generator()
 
 class AdoWritingAssessor:
-    def __init__(self, analyser, openai_api_key):
+    def __init__(self, analyser, openai_api_key, antropic_api_key=None):
         self.analyser = analyser
         self.openai_api_key = openai_api_key
+        self.antropic_api_key = antropic_api_key
 
     def revise(self,text, comment=False, writing_language="English", comment_language=None, auto_retry=2):
         return get_writing_assessment_revise()
@@ -26,10 +28,11 @@ class AdoWritingAssessor:
         return get_writing_assessment_enhance()
 
 class AdoQuestionGenerator:
-    def __init__(self, text_analyser, video_analyser, openai_api_key):
+    def __init__(self, text_analyser, video_analyser, openai_api_key=None, antropic_api_key=None):
         self.text_analyser = text_analyser
         self.video_analyser = video_analyser
         self.openai_api_key = openai_api_key
+        self.antropic_api_key = antropic_api_key
 
         
 
