@@ -1,7 +1,7 @@
 from .get_results import get_adaptor
 
 class AdoLevelAdaptor:
-    def __init__(self, analyser, openai_api_key=None, antropic_api_key=None):
+    def __init__(self, analyser, openai_api_key, antropic_api_key=None):
         self.analyser = analyser
         self.openai_api_key = openai_api_key
         self.antropic_api_key = antropic_api_key
