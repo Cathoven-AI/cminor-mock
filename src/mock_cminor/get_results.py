@@ -63106,3 +63106,10 @@ def get_transcribe_video():
     ],
     "speak_duration": 56.0
     }
+
+def get_dictionary():
+    return {
+        'entries': [{'lemma': 'parrot', 'pos': 'NOUN', 'cefr': 2}, {'lemma': 'parrot', 'pos': 'VERB', 'cefr': 3}],
+        'closest_matches': ['parroted', 'carrot', 'part', 'parroting', 'parr', 'sparrow', 'patriot', 'parotid', 'carroty', 'parrotlike']
+    }
+}
